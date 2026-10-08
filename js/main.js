@@ -127,7 +127,8 @@ async function iniciar() {
   });
 
   // conducción: palanca (vista desde la montura) y flechas del teclado; locomoción en el suelo
-  const palanca = crearPalanca({ contenedor: document.body });
+  // el control de la vista de la palanca (▲ ▼) inclina la vista como arrastrarla hacia arriba o hacia abajo
+  const palanca = crearPalanca({ contenedor: document.body, onInclinar: (d) => palanca.inclinacion(camaras.inclinar(d)) });
   const loco = crearLocomocion({ caballo, marcha, setGait, campo });
   let entradaDebug = null;
 
@@ -185,6 +186,7 @@ async function iniciar() {
       abrirDock(false);
       ponerCompacto();
       palanca.mostrar(montado);
+      if (montado) palanca.inclinacion(camaras.inclinacion());
       if (!montado) spinBtn.setAttribute('aria-pressed', 'false');
       // (camaras.st.view todavía puede no estar actualizado cuando se llama onCambio)
       hintEl.textContent = AYUDA[v];
@@ -254,6 +256,7 @@ async function iniciar() {
     loco.conducir(entradaDebug || palanca.leer(), dt);
     loco.paso(dt, speed, time);
     palanca.rumbo(loco.pose.rumbo);
+    if (montado) palanca.inclinacion(camaras.inclinacion());   // también sigue el arrastre (solo cambia si cambia el nivel)
     campo.actualizar(loco.pose, dt, time);
     orientarSol(loco.pose.rumbo);
     loco.patas.forEach((q, i) => footEls[i].classList.toggle('on', q.apoyado));

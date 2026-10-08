@@ -242,6 +242,29 @@ body.debug-cam .plate, body.debug-cam .dock, body.debug-cam .credits, body.debug
 .palanca.va-adelante .pl-arriba, .palanca.va-freno .pl-abajo,
 .palanca.va-izq .pl-izq, .palanca.va-der .pl-der { color: var(--accent); }
 .palanca.va-izq .pl-izq svg, .palanca.va-der .pl-der svg { stroke-width: 2.6; }
+/* altura de la cámara, arriba de la palanca: [▼] cámara (nivel) [▲] */
+.pl-cam {
+  display: flex; align-items: center; gap: 6px; width: 100%; justify-content: space-between;
+  padding-bottom: 6px; margin-bottom: 4px; border-bottom: 1px solid var(--line);
+  cursor: default;
+}
+.pl-cam-btn {
+  display: grid; place-items: center; width: 30px; height: 30px; padding: 0; flex: none;
+  border: 1px solid var(--line); border-radius: 9px; background: rgba(255,255,255,.7); color: var(--ink);
+  cursor: pointer; touch-action: none; -webkit-tap-highlight-color: transparent;
+  transition: background .12s, color .12s, border-color .12s;
+}
+.pl-cam-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.pl-cam-btn:hover { border-color: var(--accent); color: var(--accent); }
+.pl-cam-btn.apretado { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.pl-cam-btn.tope { opacity: .38; }
+.pl-cam-btn:focus { outline: none; }
+.pl-cam-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pl-cam-centro { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
+.pl-cam-nivel { display: flex; align-items: flex-end; gap: 2px; height: 10px; }
+.pl-cam-nivel i { display: block; width: 3px; height: 4px; border-radius: 1px; background: rgba(30,34,38,.16); }
+.pl-cam-nivel i:nth-child(5) { height: 10px; }   /* la altura normal */
+.pl-cam-nivel i.on { background: var(--accent); }
 .pl-brujula { position: absolute; bottom: 5px; right: 6px; display: flex; align-items: center; gap: 2px; pointer-events: none; }
 .pl-brujula[hidden] { display: none; }
 .pl-brujula svg { width: 18px; height: 18px; }
@@ -258,6 +281,8 @@ body.debug-cam .plate, body.debug-cam .dock, body.debug-cam .credits, body.debug
   .palanca { --pl-svg: 78px; left: 8px; padding: 6px 4px 7px; border-radius: 12px; }
   .pl-flecha, .pl-flecha svg { width: 17px; height: 17px; }
   .pl-rotulo { font-size: 9px; letter-spacing: .1em; }
+  .pl-cam { gap: 3px; padding-bottom: 5px; margin-bottom: 3px; }
+  .pl-cam-btn { width: 28px; height: 28px; }
   body.montado .palanca { bottom: calc(env(safe-area-inset-bottom, 0px) + 18px + var(--dock-h, 60px) + 8px); }
 }
 /* en la vista desde la montura, en celular, la ayuda se muestra unos segundos y se va (la palanca tiene sus rótulos) */
@@ -269,6 +294,8 @@ body.debug-cam .plate, body.debug-cam .dock, body.debug-cam .credits, body.debug
   .palanca { --pl-svg: 80px; left: 12px; bottom: calc(env(safe-area-inset-bottom, 0px) + 18px); padding: 5px 4px 6px; border-radius: 12px; }
   .pl-flecha, .pl-flecha svg { width: 16px; height: 16px; }
   .pl-rotulo { font-size: 9px; letter-spacing: .1em; }
+  .pl-cam { gap: 3px; padding-bottom: 4px; margin-bottom: 2px; }
+  .pl-cam-btn { width: 28px; height: 26px; }
   body.con-palanca .dock {
     left: calc(12px + 124px + 10px); transform: none; bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
     box-sizing: border-box; width: max-content; max-width: calc(100% - 24px - 124px - 10px);
@@ -283,7 +310,7 @@ body.debug-cam .plate, body.debug-cam .dock, body.debug-cam .credits, body.debug
 body.debug-cam .palanca { display: none; }
 
 @media (prefers-reduced-motion: reduce) {
-  .gaits button, .saddle-btn, .foot i, .pl-rotulo, .pl-flecha, .aviso, .aviso.visible, .mas-btn svg { transition: none; }
+  .gaits button, .saddle-btn, .foot i, .pl-rotulo, .pl-flecha, .pl-cam-btn, .aviso, .aviso.visible, .mas-btn svg { transition: none; }
   .aviso { transform: none; }
   body.con-palanca .plate .hint { animation-duration: .01s; }
 }

@@ -12,7 +12,27 @@ export function crearCamaras({ stage, renderer, camera, controls, body, hands, j
   // ojo de un jinete sentado: ~0,76 m sobre lo hondo del asiento, un poco atrás (de reserva si no hay jinete.ojo)
   const eyeLocal = jinete && jinete.ojo ? jinete.ojo.clone() : new V(-0.01, 2.38, 0);
   const PITCH0 = -0.40;   // arranca mirando el camino, con orejas, crin y cabeza de la montura en cuadro
-  const st = { view: 'out', yaw: 0, pitch: PITCH0, fija: null, yawS: 0, pitchS: 0 };
+  // pitchB: inclinación fija de la vista de atrás elegida con el control de la palanca; se suma a pitchS (el
+  // arrastre, que vuelve solo al centro al soltar)
+  const st = { view: 'out', yaw: 0, pitch: PITCH0, fija: null, yawS: 0, pitchS: 0, pitchB: 0 };
+  // rangos del arrastre vertical: montura (mirar arriba o abajo) y vista de atrás (cámara más baja o más alta)
+  const PITCH_MIN = -1.25, PITCH_MAX = 0.45, PITCHS_MIN = -0.35, PITCHS_MAX = 0.6;
+  const limitar = (v, a, b) => Math.max(a, Math.min(b, v));
+
+  // Control de la palanca (▲ ▼): hace lo mismo que arrastrar la vista hacia arriba o hacia abajo. inclinar(d), con
+  // d = +1 un recorrido completo hacia arriba, mueve la vista; inclinacion() la devuelve normalizada (−1 abajo …
+  // 0 la de arranque … 1 arriba) para el indicador. Arrastrar hacia arriba: desde la montura mira más arriba; de
+  // atrás, la cámara baja y la vista sube hacia el horizonte.
+  function inclinar(d) {
+    if (st.view === 'rider') st.pitch = limitar(st.pitch + d * (PITCH_MAX - PITCH0), PITCH_MIN, PITCH_MAX);
+    else if (st.view === 'seguir') st.pitchB = limitar(st.pitchB - d * PITCHS_MAX, PITCHS_MIN, PITCHS_MAX);
+    return inclinacion();
+  }
+  function inclinacion() {
+    if (st.view === 'rider') return st.pitch >= PITCH0 ? (st.pitch - PITCH0) / (PITCH_MAX - PITCH0) : -(st.pitch - PITCH0) / (PITCH_MIN - PITCH0);
+    if (st.view === 'seguir') { const p = limitar(st.pitchB + st.pitchS, PITCHS_MIN, PITCHS_MAX); return p <= 0 ? p / PITCHS_MIN : -p / PITCHS_MAX; }
+    return 0;
+  }
   let drag = null;
 
   // vista desde la montura: corre la imagen hacia arriba lo que tapa el panel de abajo (con su margen; hasta
@@ -87,10 +107,11 @@ export function crearCamaras({ stage, renderer, camera, controls, body, hands, j
     if (!drag || e.pointerId !== drag.id || st.view === 'out') return;
     if (st.view === 'rider') {
       st.yaw = Math.max(-2.6, Math.min(2.6, st.yaw - (e.clientX - drag.x) * 0.005));
-      st.pitch = Math.max(-1.25, Math.min(0.45, st.pitch - (e.clientY - drag.y) * 0.004));
+      st.pitch = limitar(st.pitch - (e.clientY - drag.y) * 0.004, PITCH_MIN, PITCH_MAX);
     } else {
       st.yawS = Math.max(-Math.PI, Math.min(Math.PI, st.yawS - (e.clientX - drag.x) * 0.006));
-      st.pitchS = Math.max(-0.35, Math.min(0.6, st.pitchS + (e.clientY - drag.y) * 0.004));
+      // el arrastre se suma a la inclinación fija (pitchB) sin pasarse del rango entre los dos
+      st.pitchS = limitar(st.pitchS + (e.clientY - drag.y) * 0.004, PITCHS_MIN - st.pitchB, PITCHS_MAX - st.pitchB);
     }
     drag.x = e.clientX; drag.y = e.clientY;
   });
@@ -138,7 +159,7 @@ export function crearCamaras({ stage, renderer, camera, controls, body, hands, j
     // más lejos en pantallas altas y angostas, para que entre el caballo entero
     const asp = stage.clientWidth / Math.max(1, stage.clientHeight);
     const k = Math.max(1, 0.8 + 0.25 / asp);
-    const D = 5.0 * k, H = (2.85 + 1.8 * st.pitchS) * k;
+    const D = 5.0 * k, H = (2.85 + 1.8 * (st.pitchB + st.pitchS)) * k;
     camPos.set(MIRA.x - D * Math.cos(a), H, MIRA.z + D * Math.sin(a));
     camera.position.copy(camPos);
     camMira.copy(MIRA);
@@ -147,9 +168,13 @@ export function crearCamaras({ stage, renderer, camera, controls, body, hands, j
 
   // resize: en celular la barra de direcciones cambia el alto a cada rato; el encuadre exterior solo se
   // rehace cuando cambia el ancho de verdad (girar el teléfono, otra ventana), así no salta la vista
+  // Si la página arranca oculta (pestaña o panel sin tamaño) el contenedor mide 0: no se toca la cámara (con aspecto
+  // 0 no se vería nada) y el ResizeObserver la rehace cuando aparece, aunque la ventana no dispare 'resize'.
   let anchoPrevio = -1;
+  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => resize()).observe(stage);
   function resize() {
     const w = stage.clientWidth, h = stage.clientHeight;
+    if (w < 2 || h < 2) return;
     renderer.setSize(w, h, false);
     camera.aspect = w / Math.max(1, h);
     if (st.view !== 'out' && !st.fija) camera.fov = fovDe(st.view);
@@ -185,5 +210,5 @@ export function crearCamaras({ stage, renderer, camera, controls, body, hands, j
     else { tPrev = 0; controls.update(); }
   }
 
-  return { st, setView, resize, update, setFija };
+  return { st, setView, resize, update, setFija, inclinar, inclinacion };
 }

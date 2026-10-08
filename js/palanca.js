@@ -4,6 +4,11 @@
 //   palanca.leer()        -> { x: -1..1 (derecha +), y: -1..1 (adelante +), activa }
 //   palanca.mostrar(bool) -> muestra u oculta la palanca en pantalla
 //   palanca.rumbo(rad)    -> opcional: muestra la brújula con el rumbo (rad, crece al doblar a la izquierda)
+//   palanca.inclinacion(v) -> muestra la inclinación de la vista (−1 abajo … 1 arriba) en el control de la vista
+// Control de la vista, arriba de la palanca: botones ▼ ▲ que hacen lo mismo que arrastrar la vista hacia abajo o
+// hacia arriba (un paso al tocar, sigue mientras se mantiene apretado) y las teclas Re Pág / Av Pág. Llama a
+// onInclinar(delta) (+ = hacia arriba); quien lo recibe (js/main.js → camaras.inclinar) devuelve el nivel con
+// palanca.inclinacion(v).
 // La palanca no guarda la marcha: al soltarla vuelve al centro (y = 0) y la locomoción mantiene la marcha.
 
 const NS = 'http://www.w3.org/2000/svg';
@@ -17,6 +22,10 @@ const CENTRO_Y = -L * COS_E;   // altura en pantalla de la bola en reposo (refer
 const ZONA_MUERTA = 0.15;      // fracción del recorrido en el centro que no hace nada
 const RAMPA_TECLA = 1.5;       // s que tarda ↑ en llevar la palanca al tope
 const Y_TOQUE = 0.2;           // ↑ apenas se toca: pide paso
+const PASO_VISTA = 0.2;       // un toque de ▲ ▼ o de Re Pág / Av Pág (el rango es −1 … 1)
+const VEL_VISTA = 0.9;        // por segundo, mientras se mantiene apretado (después de ESPERA_VISTA)
+const ESPERA_VISTA = 0.35;    // s antes de empezar a moverse solo
+const NIVELES = 9;             // marcas del indicador
 
 function el(tag, attrs = {}, padre) {
   const n = document.createElementNS(NS, tag);
@@ -80,7 +89,84 @@ function flecha(dir) {
   return s;
 }
 
-export function crearPalanca({ contenedor = document.body } = {}) {
+// flecha simple para el control de la vista (dir = +1 arriba, −1 abajo)
+function chevron(dir) {
+  const s = el('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true', focusable: 'false' });
+  el('path', { d: dir > 0 ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6' }, s);
+  return s;
+}
+
+// control de la vista: [▼] vista (nivel) [▲]
+function construirVista(onInclinar) {
+  const fila = document.createElement('div');
+  fila.className = 'pl-cam';
+  fila.setAttribute('role', 'group');
+  fila.setAttribute('aria-label', 'Inclinación de la vista');
+  const boton = (dir) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'pl-cam-btn';
+    b.setAttribute('aria-label', dir > 0 ? 'Mirar más arriba' : 'Mirar más abajo');
+    b.setAttribute('aria-keyshortcuts', dir > 0 ? 'PageUp' : 'PageDown');
+    b.appendChild(chevron(dir));
+    // tocar: un paso; mantener apretado: sigue subiendo o bajando. Con el teclado (Enter, espacio) llega un
+    // click sin puntero (detail 0): un paso.
+    let raf = 0, t0 = 0, tPrev = 0, id = null;
+    const cuadro = (t) => {
+      const dt = Math.min(0.05, (t - tPrev) / 1000); tPrev = t;
+      if ((t - t0) / 1000 > ESPERA_VISTA) onInclinar(dir * VEL_VISTA * dt);
+      raf = requestAnimationFrame(cuadro);
+    };
+    const parar = (e) => {
+      if (id === null || (e && e.pointerId !== id)) return;
+      id = null; b.classList.remove('apretado');
+      if (raf) cancelAnimationFrame(raf); raf = 0;
+    };
+    b.addEventListener('pointerdown', (e) => {
+      if (id !== null || (e.pointerType === 'mouse' && e.button !== 0)) return;
+      e.preventDefault(); e.stopPropagation();
+      id = e.pointerId;
+      try { b.setPointerCapture(id); } catch { /* sin captura */ }
+      b.classList.add('apretado');
+      onInclinar(dir * PASO_VISTA);
+      t0 = tPrev = performance.now();
+      raf = requestAnimationFrame(cuadro);
+    });
+    b.addEventListener('pointerup', parar);
+    b.addEventListener('pointercancel', parar);
+    b.addEventListener('lostpointercapture', parar);
+    b.addEventListener('click', (e) => { if (e.detail === 0) onInclinar(dir * PASO_VISTA); });
+    b.parar = () => parar();
+    return b;
+  };
+  const bajar = boton(-1), subir = boton(1);
+  const centro = document.createElement('span');
+  centro.className = 'pl-cam-centro';
+  const rotulo = document.createElement('span');
+  rotulo.className = 'pl-rotulo'; rotulo.textContent = 'vista';
+  const nivel = document.createElement('span');
+  nivel.className = 'pl-cam-nivel'; nivel.setAttribute('aria-hidden', 'true');
+  const marcas = [];
+  for (let i = 0; i < NIVELES; i++) { const m = document.createElement('i'); nivel.appendChild(m); marcas.push(m); }
+  centro.append(rotulo, nivel);
+  const estado = document.createElement('span');
+  estado.className = 'solo-lector'; estado.setAttribute('aria-live', 'polite');
+  fila.append(bajar, centro, subir, estado);
+  let ultimo = null;
+  function mostrar(v) {
+    const k = Math.round((Math.max(-1, Math.min(1, v)) + 1) / 2 * (NIVELES - 1));
+    if (k === ultimo) return;
+    ultimo = k;
+    marcas.forEach((m, i) => m.classList.toggle('on', i <= k));
+    // en el tope el botón se ve apagado pero sigue enfocable (disabled le sacaría el foco y el pointerup)
+    subir.classList.toggle('tope', v >= 1); subir.setAttribute('aria-disabled', String(v >= 1));
+    bajar.classList.toggle('tope', v <= -1); bajar.setAttribute('aria-disabled', String(v <= -1));
+    estado.textContent = `Vista ${k === (NIVELES - 1) / 2 ? 'normal' : k > (NIVELES - 1) / 2 ? 'más arriba' : 'más abajo'}`;
+  }
+  return { fila, mostrar, parar: () => { subir.parar(); bajar.parar(); } };
+}
+
+export function crearPalanca({ contenedor = document.body, onInclinar = () => {} } = {}) {
   const sinMovimiento = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
 
   // ---------- teclado ----------
@@ -102,7 +188,15 @@ export function crearPalanca({ contenedor = document.body } = {}) {
     if (k.leida) teclas.delete(e.key); else k.suelta = true;
     despertar();
   });
-  window.addEventListener('blur', () => { teclas.clear(); soltarPuntero(); });
+  window.addEventListener('blur', () => { teclas.clear(); soltarPuntero(); alt.parar(); });
+  // Re Pág / Av Pág: inclinación de la vista (solo con la palanca a la vista: vistas de atrás y desde la montura)
+  window.addEventListener('keydown', (e) => {
+    if ((e.key !== 'PageUp' && e.key !== 'PageDown') || !visible || e.altKey || e.ctrlKey || e.metaKey) return;
+    if (e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return;
+    e.preventDefault();
+    onInclinar(e.key === 'PageUp' ? PASO_VISTA : -PASO_VISTA);
+  });
+  const alt = construirVista((d) => onInclinar(d));
 
   function leerTeclas() {
     const ahora = performance.now();
@@ -152,7 +246,7 @@ export function crearPalanca({ contenedor = document.body } = {}) {
   el('path', { d: 'M0 -8.5L2.6 0H-2.6Z' }, aguja);
   el('path', { class: 'sur', d: 'M0 8.5L2.6 0H-2.6Z' }, aguja);
   arriba.setAttribute('aria-hidden', 'true'); abajo.setAttribute('aria-hidden', 'true');
-  raiz.append(arriba, medio, abajo, brujula, instr);
+  raiz.append(alt.fila, arriba, medio, abajo, brujula, instr);
   // en el orden del foco va justo después del panel de controles
   const dock = contenedor.querySelector('.dock') || document.querySelector('.dock');
   if (dock && dock.parentNode === contenedor) dock.after(raiz); else contenedor.appendChild(raiz);
@@ -184,6 +278,7 @@ export function crearPalanca({ contenedor = document.body } = {}) {
   }
   raiz.addEventListener('pointerdown', (e) => {
     if (puntero || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    if (e.target instanceof Element && e.target.closest('.pl-cam')) { e.stopPropagation(); return; }   // control de la vista
     e.preventDefault(); e.stopPropagation();
     puntero = { id: e.pointerId };
     try { raiz.setPointerCapture(e.pointerId); } catch { /* sin captura */ }
@@ -283,11 +378,14 @@ export function crearPalanca({ contenedor = document.body } = {}) {
       contenedor.classList.toggle('con-palanca', visible);
       if (!visible) {
         soltarPuntero();
+        alt.parar();
         if (raf) cancelAnimationFrame(raf);
         raf = 0; tPrev = 0;
         vis.x = vis.y = vis.vx = vis.vy = 0; dibujar();
       } else despertar();
     },
+    // inclinación de la vista (−1 abajo … 1 arriba) en el control de la vista
+    inclinacion(v) { if (Number.isFinite(v)) alt.mostrar(v); },
     // rumbo en radianes (crece al doblar a la izquierda); la aguja señala la dirección inicial
     rumbo(rad) {
       if (!Number.isFinite(rad)) return;
