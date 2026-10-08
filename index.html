@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<title>El zaino</title>
+<meta name="description" content="Un caballo zaino colorado en 3D, ensillado, que recorre un campo uruguayo al paso, al trote o al galope. Miralo desde afuera o desde la montura.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Sans+Condensed:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="loading" role="status" aria-live="polite">
+  <div class="loading-card">
+    <p id="loading-msg">Modelando el caballo…</p>
+    <button type="button" class="tool" id="loading-retry" hidden>Volver a cargar</button>
+  </div>
+</div>
+<noscript><p class="noscript">Esta página necesita JavaScript para mostrar el caballo en 3D.</p></noscript>
+<div id="stage" role="img" aria-label="Caballo zaino colorado en 3D, ensillado, en un campo con rancho, ovejas y alambrados."></div>
+
+<header class="plate">
+  <div class="eyebrow">Pelaje · zaino colorado</div>
+  <h1>El <em>zaino</em></h1>
+  <p class="hint" id="hint">Arrastrá para girarlo · rueda o pellizco para acercar · flechas para conducir</p>
+</header>
+
+<div class="aviso" id="aviso" role="status" aria-live="polite"></div>
+
+<button type="button" class="reiniciar" id="reiniciar" aria-keyshortcuts="R" title="Volver al punto de partida (R)">
+  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4.5h4.5"/></svg>
+  <span>Reiniciar</span>
+</button>
+
+<section class="dock" id="dock" aria-label="Controles">
+  <div class="gaits" role="group" aria-label="Marcha">
+    <button type="button" id="g-stand" data-gait="stand" aria-pressed="false" aria-keyshortcuts="1">Quieto<kbd aria-hidden="true">1</kbd></button>
+    <button type="button" id="g-walk" data-gait="walk" aria-pressed="true" aria-keyshortcuts="2">Paso<kbd aria-hidden="true">2</kbd></button>
+    <button type="button" id="g-trot" data-gait="trot" aria-pressed="false" aria-keyshortcuts="3">Trote<kbd aria-hidden="true">3</kbd></button>
+    <button type="button" id="g-gallop" data-gait="gallop" aria-pressed="false" aria-keyshortcuts="4">Galope<kbd aria-hidden="true">4</kbd></button>
+  </div>
+  <button type="button" class="saddle-btn" id="v-toggle" aria-keyshortcuts="V" aria-label="Cambiar de vista (ahora: vista libre). Ver desde atrás">
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 9c3 0 4 3 9 3s6-3 9-3c-1 4-3 7-9 7S4 13 3 9z"/><path d="M12 16v3m-3 0h6"/></svg>
+    <span id="v-label">Ver desde atrás</span><span class="v-corto" id="v-corto" aria-hidden="true">Atrás</span><kbd aria-hidden="true">V</kbd>
+  </button>
+  <button type="button" class="mas-btn" id="mas" aria-expanded="false" aria-controls="apoyos meta" aria-label="Más controles" hidden>
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 15l6-6 6 6"/></svg><span class="mas-txt" aria-hidden="true">Más</span>
+  </button>
+  <div class="feet-wrap" id="apoyos">
+    <span>Apoyos</span>
+    <div class="feet" aria-hidden="true">
+      <div class="foot" id="f-MI"><i></i>MI</div>
+      <div class="foot" id="f-MD"><i></i>MD</div>
+      <div class="foot" id="f-PI"><i></i>PI</div>
+      <div class="foot" id="f-PD"><i></i>PD</div>
+    </div>
+  </div>
+  <div class="meta" id="meta">
+    <div class="cadence" id="cadence" aria-live="polite" aria-atomic="true"><b>Paso</b> · 4 tiempos, secuencia lateral · ~6 km/h</div>
+    <div class="tools">
+      <label class="speed" for="speed">Velocidad
+        <input id="speed" type="range" min="0.25" max="1.5" step="0.05" value="1">
+        <output id="speed-out" for="speed">1.0×</output>
+      </label>
+      <button type="button" class="tool" id="spin" aria-pressed="false">Girar solo</button>
+    </div>
+  </div>
+</section>
+
+<footer class="credits">Hecho con <a href="https://threejs.org" rel="noopener">three.js</a> (MIT)</footer>
+
+<script src="vendor/three.min.js"></script>
+<script src="vendor/OrbitControls.js"></script>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

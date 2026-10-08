@@ -1,0 +1,12 @@
+{
+  "name": "el-zaino-qa",
+  "private": true,
+  "type": "module",
+  "description": "Herramientas de prueba y captura de El zaino",
+  "scripts": {
+    "check": "node check.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.48.0"
+  }
+}

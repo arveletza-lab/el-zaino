@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "zaino",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["tools/qa/serve.sh"],
+      "port": 8000
+    }
+  ]
+}
