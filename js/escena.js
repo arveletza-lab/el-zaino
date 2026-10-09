@@ -1,7 +1,28 @@
 // Renderer, cámara, OrbitControls, luces, mapa de entorno (reflejos del pelaje) y sombras.
 import { lin, sstep } from './util.js';
 
+// Brave 1.97 (Chromium 155) no compila fract() de un vec3 ("'GL_ANDROID_extension_pack_es31a' : extension is not
+// supported"; con float, vec2 y vec4 anda), y three.js lo usa en varios shaders (packDepthToRGBA, entre otros):
+// esos materiales no se dibujaban (el caballo se veía transparente). Se define fract(x) como x − floor(x), que es su
+// definición exacta, al principio de cada shader (después de #version). Probado en qa-out/prueba-shader.html.
+const MACRO_FRACT = '#define fract( x ) ( ( x ) - floor( x ) )\n';
+function parcheFract() {
+  for (const C of [window.WebGL2RenderingContext, window.WebGLRenderingContext]) {
+    if (!C || C.prototype.__parcheFract) continue;
+    const original = C.prototype.shaderSource;
+    C.prototype.shaderSource = function (shader, src) {
+      if (typeof src === 'string' && src.includes('fract')) {
+        const m = src.match(/^\s*#version[^\n]*\n/);
+        src = m ? m[0] + MACRO_FRACT + src.slice(m[0].length) : MACRO_FRACT + src;
+      }
+      return original.call(this, shader, src);
+    };
+    C.prototype.__parcheFract = true;
+  }
+}
+
 export function crearEscena(stage) {
+  parcheFract();
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.outputEncoding = THREE.sRGBEncoding;
