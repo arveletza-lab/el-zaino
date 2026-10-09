@@ -89,8 +89,13 @@
 //   un esqueleto propio: los 30 huesos del cuerpo + 10 de la crin (mechones que flamean alrededor de la cresta)
 //   + copete + 2 orejas + 10 de la cola. Por cuadro solo se calculan esas matrices (la GPU deforma la malla).
 //   El maslo es un tubo con piel en los huesos de la cola, con el material del cuerpo (mismo programa).
+//   Cada mechón es una curva con una o dos tarjetas (cruzadas en la cola) que muestran una columna del atlas de
+//   mechones de js/texturas.js; la crin y el copete van en tres capas (abajo tupida, medio, arriba rala) y la cola
+//   en un volumen angosto bajo el maslo y más abierto abajo (anchoCola), con las puntas desparejas que se abren.
+//   Normal del volumen, dirección del pelo y oclusión por capa (atributo peloT) para el brillo de hairMat.
 import { V, lin, lerp, sstep, TAU, rnd, prof, cap, section, crearRuido3 } from './util.js';
 import { shadowed } from './escena.js';
+import { HAIR_COLS, UMBRAL_PELO } from './texturas.js';
 
 // =====================================================================================================
 // ANATOMÍA (datos puros, lado derecho z > 0; el izquierdo es el espejo). docs/investigacion-anatomia.md §1.2
@@ -139,6 +144,14 @@ function ejes(dir, plano) {
 }
 
 // ---------- primitivas SDF (devuelven { f(x, y, z), box }) ----------
+// cavidades de un ollar (lado s): las restan crearCampo y las usa el color del hocico (adentro negro, borde claro)
+function cavidadesOllar(s) {
+  const A = [CAB.A[0], CAB.A[1], 0], F = [CAB.F[0], CAB.F[1], 0];
+  return [
+    elipsoide(hp(0.568, -0.056, 0.05 * s), [0.032, 0.017, 0.022], vnorm(vsub(A, vsc(F, 0.3))), [0.85, 0, s]),
+    capsula(hp(0.548, -0.046, 0.054 * s), hp(0.51, -0.029, 0.05 * s), 0.009, 0.0035)
+  ];
+}
 // elipsoide orientado (aproximación de Íñigo Quílez); r = [a lo largo de dir, ancho, espesor en `plano`]
 function elipsoide(c, r, dir = [1, 0, 0], plano = [0, 0, 1]) {
   const [e1, e2, e3] = ejes(dir, plano), [cx, cy, cz] = c, [a, b, d] = r, m = Math.max(a, b, d);
@@ -524,12 +537,12 @@ export function crearCampo() {
   const cabeza = perfilado({
     O: [CAB.N[0], CAB.N[1], 0], A: [CAB.A[0], CAB.A[1], 0], U: [CAB.F[0], CAB.F[1], 0], u0: -0.04, u1: 0.615,
     top: [[-0.04, -0.10], [0.0, -0.03], [0.04, 0.002], [0.10, 0.004], [0.20, 0.0], [0.30, -0.002], [0.40, -0.006], [0.48, -0.012], [0.54, -0.024], [0.58, -0.04], [0.605, -0.06], [0.615, -0.075]],
-    bot: [[-0.04, -0.135], [0.02, -0.17], [0.08, -0.23], [0.14, -0.255], [0.20, -0.245], [0.26, -0.21], [0.32, -0.17], [0.42, -0.14], [0.50, -0.125], [0.56, -0.12], [0.60, -0.105], [0.615, -0.085]],
+    bot: [[-0.04, -0.135], [0.02, -0.17], [0.08, -0.238], [0.14, -0.268], [0.20, -0.26], [0.26, -0.222], [0.32, -0.176], [0.42, -0.14], [0.50, -0.125], [0.56, -0.12], [0.60, -0.105], [0.615, -0.085]],
     hm: 0.6,
-    wm: [[-0.04, 0.06], [0.02, 0.077], [0.08, 0.095], [0.16, 0.102], [0.22, 0.094], [0.30, 0.072], [0.38, 0.063], [0.46, 0.057], [0.53, 0.057], [0.58, 0.056], [0.615, 0.04]],
-    wt: [[-0.04, 0.05], [0.04, 0.072], [0.12, 0.092], [0.20, 0.086], [0.30, 0.06], [0.40, 0.05], [0.50, 0.045], [0.58, 0.04], [0.615, 0.03]],
-    wb: [[-0.04, 0.05], [0.10, 0.06], [0.20, 0.055], [0.30, 0.045], [0.45, 0.042], [0.55, 0.05], [0.615, 0.035]],
-    nt: 3, nb: 2.2
+    wm: [[-0.04, 0.06], [0.02, 0.077], [0.08, 0.095], [0.16, 0.102], [0.22, 0.097], [0.30, 0.082], [0.38, 0.067], [0.46, 0.059], [0.53, 0.057], [0.58, 0.056], [0.615, 0.04]],
+    wt: [[-0.04, 0.05], [0.04, 0.072], [0.12, 0.092], [0.20, 0.088], [0.30, 0.068], [0.40, 0.058], [0.50, 0.052], [0.56, 0.047], [0.615, 0.032]],
+    wb: [[-0.04, 0.05], [0.10, 0.06], [0.20, 0.058], [0.30, 0.05], [0.45, 0.043], [0.55, 0.05], [0.615, 0.035]],
+    nt: 3.4, nb: 2.2
   });
   U(cabeza, 0.05);
   U(elipsoide([-0.605, 1.415, 0], [0.06, 0.045, 0.05]), 0.05);     // nacimiento de la cola
@@ -643,16 +656,16 @@ export function crearCampo() {
     U(capsula(hz(0.06, -0.06, 0.085), hz(0.17, -0.07, 0.088), 0.012, 0.012), 0.03);   // arco cigomático
     U(capsula(hz(0.165, -0.022, 0.08), hz(0.235, -0.018, 0.078), 0.012, 0.011), 0.02);   // reborde supraorbitario
     U(elipsoide(hz(0.205, -0.045, 0.07), [0.035, 0.03, 0.025], A_, Zs), 0.02);   // órbita
-    U(capsula(hz(0.25, -0.09, 0.082), hz(0.36, -0.08, 0.072), 0.009, 0.009), 0.018);   // cresta facial
+    U(capsula(hz(0.235, -0.088, 0.08), hz(0.345, -0.082, 0.073), 0.0068, 0.006), 0.03);   // cresta facial (relieve de ~1 cm, suave)
     U(capsula(hz(0.05, -0.11, 0.07), hz(0.13, -0.275, 0.06), 0.015, 0.015), 0.03);   // borde de la rama de la mandíbula
     U(capsula(hz(0.13, -0.27, 0.055), hz(0.30, -0.195, 0.035), 0.014, 0.014), 0.04);   // borde inferior
     U(capsula(hz(0.30, -0.195, 0.035), hz(0.525, -0.125, 0.02), 0.012, 0.012), 0.04);
     U(elipsoide(hz(0.008, -0.03, 0.054), [0.022, 0.018, 0.022]), 0.03);   // base de la oreja (queda dentro del tubo de la oreja)
   });
   // línea media: mentón y labios
-  U(elipsoide(hp(0.54, -0.142, 0), [0.032, 0.03, 0.034], A_), 0.018);   // mentón
+  U(elipsoide(hp(0.545, -0.14, 0), [0.027, 0.025, 0.03], A_), 0.012);   // mentón: bola chica bajo el labio inferior
   U(elipsoide(hp(0.585, -0.065, 0), [0.035, 0.045, 0.052], A_), 0.025);   // labio superior
-  U(elipsoide(hp(0.575, -0.108, 0), [0.03, 0.022, 0.04], A_), 0.02);   // labio inferior
+  U(elipsoide(hp(0.575, -0.106, 0), [0.028, 0.02, 0.038], A_), 0.014);   // labio inferior
 
   // ---------- índice por bloques: cada muestra evalúa solo las primitivas cercanas ----------
   const DOM = { x0: -0.92, x1: 1.78, y0: -0.03, y1: 2.24, z0: -0.4, z1: 0.4, bs: 0.06 };
@@ -763,7 +776,7 @@ export function crearCampo() {
   const proyCab = (u, v) => [hp(u, v, 0), wHat];
   const surcosCab = [
     [[proyCab(0.27, -0.16), proyCab(0.285, -0.20)], 0.006, 0.010],     // escotadura vascular
-    [[proyCab(0.0, -0.10), proyCab(0.035, -0.175), proyCab(0.075, -0.235)], 0.010, 0.02],   // hueco detrás de la ganacha
+    [[proyCab(0.0, -0.10), proyCab(0.03, -0.17), proyCab(0.065, -0.228)], 0.014, 0.022],   // hueco detrás de la ganacha
     [[proyCab(0.13, -0.008), proyCab(0.16, -0.004)], 0.007, 0.018],     // fosa supraorbitaria
     [[proyCab(0.50, -0.094), proyCab(0.56, -0.091), proyCab(0.598, -0.089)], 0.011, 0.007]   // comisura de la boca
   ];
@@ -774,6 +787,12 @@ export function crearCampo() {
       Gs(surco(pts, sc.depth, sc.width, sc.hacia && [sc.hacia[0], sc.hacia[1], sc.hacia[2] * s], sc.duro));
     }
     for (const [pp, depth, width] of surcosCab) Gs(surco(pp.map(([p, d]) => proyectar(p, [d[0], d[1], d[2] * s])), depth, width));
+    // ganacha: el borde de la mandíbula (de la articulación al ángulo redondeado y hacia adelante por abajo) en relieve,
+    // suave hacia la mejilla y marcado hacia afuera; el masetero, una masa ancha y baja que agarra el brillo
+    const dirG = vnorm(vadd([0, 0, s], vsc(F_, -0.25)));
+    const borde = [[0.05, -0.105], [0.07, -0.165], [0.10, -0.21], [0.145, -0.233], [0.20, -0.225], [0.27, -0.195]].map(([u, v]) => proyectar(hp(u, v, 0), dirG));
+    Gs(surco(borde, -0.007, 0.04, vnorm(vadd(vsc(A_, 0.6), vsc(F_, 0.8))), 0.009));
+    Gs(surco([proyectar(hp(0.15, -0.17, 0), [0, 0, s]), proyectar(hp(0.2, -0.16, 0), [0, 0, s])], -0.008, 0.05));
   });
   Gs(surco([proyectar(hp(0.598, -0.089, 0), A_)], 0.008, 0.008));   // la boca cruza el frente del hocico
   // línea media: cruz (relieve) y hendidura entre las nalgas, bajo la cola, hasta y ≈ 1,05
@@ -808,10 +827,15 @@ export function crearCampo() {
     arco(-0.85, -0.4, 0.0045);   // párpado inferior
     // ollares: coma abierta hacia adelante y afuera
     // (ala: reborde en relieve por arriba y afuera de la abertura, el falso ollar)
-    U(capsula(hp(0.528, -0.03, 0.05 * s), hp(0.566, -0.038, 0.049 * s), 0.0065, 0.006), 0.012);
-    U(capsula(hp(0.566, -0.038, 0.049 * s), hp(0.586, -0.056, 0.04 * s), 0.006, 0.005), 0.01);
-    R_(elipsoide(hp(0.552, -0.047, 0.044 * s), [0.032, 0.014, 0.022], vnorm(vadd(A_, vsc(F_, 0.35))), [0.35, 0, s]), 0.006);
-    R_(elipsoide(hp(0.576, -0.063, 0.034 * s), [0.018, 0.015, 0.019], A_, [0.35, 0, s]), 0.006);
+    // ala: reborde por arriba y por afuera de la abertura, que baja por delante (la C)
+    U(capsula(hp(0.518, -0.026, 0.05 * s), hp(0.552, -0.03, 0.053 * s), 0.0055, 0.0065), 0.012);
+    U(capsula(hp(0.552, -0.03, 0.053 * s), hp(0.58, -0.042, 0.05 * s), 0.0065, 0.006), 0.012);
+    U(capsula(hp(0.58, -0.042, 0.05 * s), hp(0.594, -0.064, 0.042 * s), 0.006, 0.005), 0.01);
+    // abertura (ollar verdadero, óvalo grande abajo y adelante, abierto hacia adelante y afuera) y cola de la coma (la
+    // hendidura sube hacia atrás, al falso ollar, bajo el ala); el color usa las mismas formas
+    const [cavO, cavC] = cavidadesOllar(s);
+    R_(cavO, 0.005);
+    R_(cavC, 0.004);
   });
   function R_(p, k) { R(p, k); }
   indexar();
@@ -1125,17 +1149,47 @@ export function construirCaballo({ scene, coatMap, coatBump, hairTex, horneado =
   const mc = (k) => { const t = performance.now(); tiemposCuerpo[k] = Math.round(t - tcT); tcT = t; };
   // pelaje zaino colorado (albedo, docs/investigacion-anatomia.md §6.1): base, oscuro (dorso, cara interna),
   // claro y caoba (variación de rojo a caoba en manchas grandes)
-  const COAT = lin('#682d17'), COAT_DARK = lin('#3f170b'), LIGHT = lin('#86421f'), CAOBA = lin('#4c1d10'), ROJO = lin('#7c2c10');
-  const BLACK = lin('#15100e'), MUZZLE = lin('#2c1d17'), HALO = lin('#5a4438');
+  const COAT = lin('#66321c'), COAT_DARK = lin('#3d190e'), LIGHT = lin('#874826'), CAOBA = lin('#4a2014'), ROJO = lin('#773319');
+  const BLACK = lin('#15100e'), MUZZLE = lin('#4a3931'), HALO = lin('#6e5a4f'), LABIO = lin('#2a1f1b');
+  const DORADO = lin('#94502a'), HUMO = lin('#301710');   // masas convexas al sol; humo de los cabos
 
   // Pocos programas de shader: casi todo es MeshStandardMaterial con bumpMap; el cuerno de los cascos y las orejas
   // usan el mismo programa que coatMat (colores de vértice, map y bumpMap, una cara)
   const coatMat = new THREE.MeshStandardMaterial({ vertexColors: true, color: 0xffffff, map: coatMap, bumpMap: coatBump, bumpScale: 0.0012, roughness: 0.58, metalness: 0, envMapIntensity: 0.3 });
   const hoofMat = new THREE.MeshStandardMaterial({ vertexColors: true, color: 0xffffff, map: coatMap, bumpMap: coatBump, bumpScale: 0.0016, roughness: 0.36, metalness: 0, envMapIntensity: 0.55 });
   // pelo (crin, copete, cola y orejas): una sola malla con piel; el color de cada mechón va en los vértices
-  const hairMat = new THREE.MeshLambertMaterial({ map: hairTex, vertexColors: true, alphaTest: 0.32, side: THREE.DoubleSide, skinning: true });
-  hairMat.onBeforeCompile = (sh) => { sh.fragmentShader = sh.fragmentShader.replace('#include <dithering_fragment>', '#include <dithering_fragment>\n  gl_FragColor.a = 1.0;'); };
-  const hairDepth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: hairTex, alphaTest: 0.32, skinning: true });
+  // Brillo del pelo largo (Kajiya-Kay): una banda de reflejo perpendicular a los pelos, con la dirección de cada pelo
+  // en el atributo peloT (xyz, con la piel) y la oclusión de cada capa en w. La normal es la del volumen del mechón
+  // (de la cola, del cuello o de la frente hacia afuera) y no se da vuelta en la cara de atrás de la tarjeta: así la
+  // cola y la crin se sombrean como un volumen y no como láminas sueltas. alphaTest (sin mezcla: sin problemas de
+  // orden); la textura trae sus mipmaps con la cobertura conservada (js/texturas.js).
+  const hairMat = new THREE.MeshStandardMaterial({ map: hairTex, vertexColors: true, alphaTest: UMBRAL_PELO, side: THREE.DoubleSide, skinning: true, roughness: 0.72, metalness: 0, envMapIntensity: 0.25 });
+  hairMat.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute vec4 peloT;\nvarying vec4 vPeloT;')
+      .replace('#include <skinnormal_vertex>', '#include <skinnormal_vertex>\n  vec3 peloTo = peloT.xyz;\n#ifdef USE_SKINNING\n  peloTo = ( skinMatrix * vec4( peloTo, 0.0 ) ).xyz;\n#endif\n  vPeloT = vec4( normalMatrix * peloTo, peloT.w );');
+    const luces = THREE.ShaderChunk.lights_fragment_begin.split('RE_Direct( directLight, geometry, material, reflectedLight );').join('RE_Direct( directLight, geometry, material, reflectedLight );\n\t\tpeloKK( directLight, geometry, reflectedLight );');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec4 vPeloT;\nvec3 peloTg;\nfloat peloAO, peloVar;')
+      .replace('#include <lights_physical_pars_fragment>', `#include <lights_physical_pars_fragment>
+void peloKK( const in IncidentLight L, const in GeometricContext g, inout ReflectedLight r ) {
+  vec3 H = normalize( L.direction + g.viewDir );
+  // cada pelo de la textura inclina un poco la tangente: el reflejo se rompe en vetas a lo largo del mechón
+  vec3 T = normalize( peloTg + g.normal * ( peloVar - 0.78 ) * 0.5 );
+  float t1 = dot( normalize( T + g.normal * 0.1 ), H ), t2 = dot( normalize( T - g.normal * 0.2 ), H );
+  float s1 = pow( max( 0.0, 1.0 - t1 * t1 ), 110.0 ), s2 = pow( max( 0.0, 1.0 - t2 * t2 ), 28.0 );
+  float w = clamp( dot( g.normal, L.direction ) * 0.6 + 0.4, 0.0, 1.0 ) * peloAO * peloAO * ( 0.25 + 0.75 * peloVar );
+  r.directSpecular += L.color * w * ( 0.03 * s1 + 0.008 * s2 * vec3( 1.0, 0.7, 0.5 ) );
+}`)
+      .replace('#include <map_fragment>', '#include <map_fragment>\n  peloVar = texelColor.r;')
+      .replace('#include <normal_fragment_begin>', 'float faceDirection = gl_FrontFacing ? 1.0 : - 1.0;\nvec3 normal = normalize( vNormal );\nvec3 peloV = normalize( vViewPosition );\nfloat peloNV = dot( normal, peloV );\nif ( peloNV < 0.15 ) normal = normalize( normal - peloV * ( peloNV - 0.15 ) );\nvec3 geometryNormal = normal;\npeloTg = normalize( vPeloT.xyz );\npeloAO = clamp( vPeloT.w, 0.0, 1.0 );')
+      // el reflejo isótropo (GGX y el del cielo) es poco: el brillo del pelo largo es la banda de peloKK
+      .replace('#include <lights_physical_fragment>', '#include <lights_physical_fragment>\n  material.specularColor *= 0.3;')
+      .replace('#include <lights_fragment_begin>', luces)
+      .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\n  reflectedLight.indirectDiffuse *= peloAO;\n  reflectedLight.indirectSpecular *= peloAO;')
+      .replace('#include <dithering_fragment>', '#include <dithering_fragment>\n  gl_FragColor.a = 1.0;');
+  };
+  const hairDepth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: hairTex, alphaTest: UMBRAL_PELO, skinning: true });
   const eyeMat = new THREE.MeshStandardMaterial({ color: lin('#1a0d08'), roughness: 0.04, envMapIntensity: 1.6, bumpMap: coatBump, bumpScale: 0, side: THREE.DoubleSide });
   const darkMat = new THREE.MeshStandardMaterial({ color: lin('#0b0605'), roughness: 0.95, bumpMap: coatBump, bumpScale: 0, side: THREE.DoubleSide });
 
@@ -1194,12 +1248,38 @@ export function construirCaballo({ scene, coatMap, coatBump, hairTex, horneado =
   bodyGeo.setAttribute('skinWeight', new THREE.Float32BufferAttribute(skinWeight, 4));
   mc('pesos');
 
+  // ollar: distancia (m) a las cavidades de los ollares (< 0 adentro de la abertura); lejos del hocico, 1
+  const CAV_OLLAR = [1, -1].flatMap((s) => cavidadesOllar(s));
+  function ollarMasc(x, y, z) {
+    if (x < 1.5 || y > 1.75) return 1;
+    let d = 1; for (const c of CAV_OLLAR) d = Math.min(d, c.f(x, y, z));
+    return d;
+  }
   // ---------- color del pelaje ----------
   const noise3 = crearRuido3();
   {
     const p = net.pos, nrm = bodyGeo.attributes.normal.array, col = horneado ? horneado.col : new Float32Array(NV * 3), uv = new Float32Array(NV * 2);
     const c = new THREE.Color(), ojosC = cp.ojos;
-    const ollares = [1, -1].map((s) => hp(0.558, -0.05, 0.042 * s));
+    // convexidad a la escala de los músculos (~8 cm): cuánto se hunde cada vértice al suavizar la malla 40 veces,
+    // medido sobre la normal (> 0 en las masas convexas: paleta, antebrazo, costillas, grupa, muslo; < 0 en los
+    // surcos y los pliegues). El pelo de las masas es más claro y dorado y el de los surcos más oscuro: los músculos
+    // se leen también por el color, como en las fotos. Solo al generar (el horneado guarda el color).
+    const convex = new Float32Array(NV);
+    if (!horneado) {
+      const { start, nb } = vecinos(net.idx, NV);
+      let a = Float32Array.from(p), b = new Float32Array(p.length);
+      for (let it = 0; it < 40; it++) {
+        for (let v = 0; v < NV; v++) {
+          const s0 = start[v], s1 = start[v + 1], k = s1 - s0;
+          if (!k) { b[v * 3] = a[v * 3]; b[v * 3 + 1] = a[v * 3 + 1]; b[v * 3 + 2] = a[v * 3 + 2]; continue; }
+          let sx = 0, sy = 0, sz = 0;
+          for (let j = s0; j < s1; j++) { const u = nb[j] * 3; sx += a[u]; sy += a[u + 1]; sz += a[u + 2]; }
+          b[v * 3] = 0.5 * a[v * 3] + 0.5 * sx / k; b[v * 3 + 1] = 0.5 * a[v * 3 + 1] + 0.5 * sy / k; b[v * 3 + 2] = 0.5 * a[v * 3 + 2] + 0.5 * sz / k;
+        }
+        [a, b] = [b, a];
+      }
+      for (let v = 0; v < NV; v++) convex[v] = (p[v * 3] - a[v * 3]) * nrm[v * 3] + (p[v * 3 + 1] - a[v * 3 + 1]) * nrm[v * 3 + 1] + (p[v * 3 + 2] - a[v * 3 + 2]) * nrm[v * 3 + 2];
+    }
     for (let v = 0; v < NV; v++) {
       const x = p[v * 3], y = p[v * 3 + 1], z = p[v * 3 + 2], ny = nrm[v * 3 + 1], nz = nrm[v * 3 + 2];
       const pl = pernas[v];
@@ -1207,22 +1287,27 @@ export function construirCaballo({ scene, coatMap, coatBump, hairTex, horneado =
       const wl = Math.min(1, pl * 1.3);
       uv[v * 2] = lerp(y * 2.4 + z * 0.4, x * 2.4 + z * 0.8, wl); uv[v * 2 + 1] = lerp(x * 2.4, y * 2.4, wl);
       if (horneado) continue;
-      colorPelo(x, y, z, ny, nz, pl, wl, c);
+      colorPelo(x, y, z, ny, nz, pl, wl, c, convex[v]);
       col[v * 3] = c.r; col[v * 3 + 1] = c.g; col[v * 3 + 2] = c.b;
     }
     bodyGeo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     bodyGeo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-    function colorPelo(x, y, z, ny, nz, pl, wl, c) {
+    function colorPelo(x, y, z, ny, nz, pl, wl, c, cv) {
       c.copy(COAT);
       // manchas grandes de rojo a caoba y variación fina
       const nd = noise3(x * 4.5, y * 4.5, z * 4.5) * 0.7 + noise3(x * 13, y * 13, z * 13) * 0.3;
       c.lerp(nd > 0 ? ROJO : CAOBA, Math.min(1, Math.abs(nd) * 1.6) * 0.55);
       c.lerp(LIGHT, 0.18 * sstep(0.1, 0.5, noise3(x * 2 + 7, y * 2, z * 2)));
+      // masas convexas más claras y doradas, surcos y pliegues más oscuros (no en los cabos)
+      // (los miembros son más finos y se hunden más al suavizar: se descuenta; los cabos no cambian)
+      const plc = Math.min(1, pl), cva = cv - 0.0055 * plc, tronco = lerp(1, sstep(0.66, 0.8, y), plc);
+      c.lerp(DORADO, 0.45 * sstep(0.003, 0.010, cva) * tronco);
+      c.lerp(CAOBA, 0.5 * sstep(0.0005, -0.006, cva) * tronco);
       c.lerp(COAT_DARK, 0.55 * sstep(0.3, 0.95, ny) * (x < 1.2 ? 1 : 0));          // línea superior más oscura
       // cara interna de los miembros y entre las manos y los muslos, más oscura
       c.lerp(COAT_DARK, 0.5 * sstep(0.16, 0.04, Math.abs(z)) * sstep(1.0, 0.85, y));
       c.lerp(COAT_DARK, 0.35 * sstep(0.2, 0.7, -nz * Math.sign(z || 1)) * sstep(1.15, 0.95, y));
-      c.lerp(LIGHT, 0.15 * sstep(-0.1, -0.6, ny) * sstep(1.25, 1.05, y) * (1 - wl)); // vientre y flanco apenas más claros
+      c.lerp(LIGHT, 0.3 * sstep(-0.1, -0.6, ny) * sstep(1.25, 1.05, y) * (1 - wl));  // vientre y flanco apenas más claros
       // cuello: negro bajo la crin, a lo largo de la cresta (más del lado derecho, donde cae)
       const t = cp.cuello.tDe(x, y);
       if (t > 0.02 && t < 1.02) {
@@ -1236,22 +1321,28 @@ export function construirCaballo({ scene, coatMap, coatBump, hairTex, horneado =
         const [u, vv] = cp.cabeza.local(x, y, z);
         if (u > -0.05) {
           c.lerp(COAT_DARK, 0.25 * sstep(0.25, 0.42, u));
-          c.lerp(MUZZLE, sstep(0.47, 0.56, u));
-          let dmin = 1e9; for (const o of ollares) dmin = Math.min(dmin, Math.hypot(x - o[0], y - o[1], z - o[2]));
-          c.lerp(HALO, 0.55 * sstep(0.06, 0.03, dmin));
-          c.lerp(BLACK, sstep(0.026, 0.014, dmin));
-          c.lerp(BLACK, 0.7 * sstep(0.56, 0.6, u) * sstep(-0.075, -0.095, vv));   // labios y boca
+          // hocico gris pardo (no negro), más claro y aterciopelado alrededor de los ollares; la abertura, negra
+          c.lerp(MUZZLE, sstep(0.45, 0.55, u));
+          const ol = ollarMasc(x, y, z);
+          c.lerp(HALO, 0.55 * sstep(0.022, 0.006, ol));
+          c.lerp(BLACK, sstep(0.005, -0.001, ol));
+          c.lerp(LABIO, 0.75 * sstep(0.56, 0.6, u) * sstep(-0.075, -0.095, vv));   // labios y boca
           for (const o of ojosC) { const de = Math.hypot(x - o.c[0], y - o.c[1], z - o.c[2]); c.lerp(COAT_DARK, 0.45 * sstep(0.045, 0.03, de)); c.lerp(BLACK, sstep(0.0285, 0.0255, de)); }
         }
       }
       // cabos negros: borde irregular y difuminado; manos hasta ~0,62 (más arriba por detrás del antebrazo), patas
       // hasta encima de la punta del corvejón (más arriba por detrás, más abajo por delante de la pierna)
+      // transición ahumada (foto-1): primero el pelo se oscurece a un castaño negruzco en ~12 cm, con vetas a lo
+      // largo de la pata (pelos negros que suben entre los castaños), y recién después pasa a negro
       if (pl > 0.03) {
         const front = x > 0.2;
         const atras = front ? sstep(0.76, 0.68, x) : sstep(-0.56, -0.70, x);
         const tope = (front ? 0.585 + 0.07 * atras : 0.575 + 0.13 * atras)
           + 0.05 * noise3(x * 9 + 5, y * 5, z * 9) + 0.02 * noise3(x * 31, y * 23 + 3, z * 31);
-        c.lerp(BLACK, Math.min(1, pl * 1.6) * sstep(tope + 0.07, tope - 0.06, y));
+        const veta = noise3(x * 55 + 2, y * 5, z * 55) * 0.7 + noise3(x * 120, y * 9 + 4, z * 120) * 0.3;   // a lo largo del pelo
+        const w = Math.min(1, pl * 1.6), yv = y - 0.045 * veta;
+        c.lerp(HUMO, 0.8 * w * sstep(tope + 0.15, tope + 0.01, yv));
+        c.lerp(BLACK, w * sstep(tope + 0.03, tope - 0.09, yv));
       }
       // castaños y espolones
       for (const [cx, cy, cz] of [[0.745, 0.605, 0.105], [-0.62, 0.48, 0.095], [0.684, 0.148, 0.125], [-0.672, 0.145, 0.12]]) {
@@ -1261,7 +1352,8 @@ export function construirCaballo({ scene, coatMap, coatBump, hairTex, horneado =
   }
   // oclusión ambiental por vértice (aoMap: una rampa de gris leída en uv2.x). El vientre y las caras que miran abajo, la
   // cara interna de los miembros, las axilas y la ingle reciben menos luz del cielo y, sobre todo, no lo reflejan: sin
-  // esto el reflejo del entorno dibujaba una franja clara y rosada bajo el vientre al estirarse la piel en el galope.
+  // esto el reflejo del entorno dibujaba una franja clara y rosada bajo el vientre al estirarse la piel en el galope
+  // (ahora el reflejo del vientre también lo apaga el brillo de uv2.y, así que la oclusión es más suave).
   // (aoMap también atenúa el especular indirecto en MeshPhysicalMaterial; el material del cuerpo es su propio programa)
   const aoTex = (() => {
     const c = document.createElement('canvas'); c.width = 256; c.height = 1;
@@ -1269,26 +1361,61 @@ export function construirCaballo({ scene, coatMap, coatBump, hairTex, horneado =
     gr.addColorStop(0, '#000'); gr.addColorStop(1, '#fff'); g.fillStyle = gr; g.fillRect(0, 0, 256, 1);
     const t = new THREE.CanvasTexture(c); t.minFilter = THREE.LinearFilter; t.generateMipmaps = false; return t;
   })();
+  // uv2.y = cuánto brilla el pelo (0 a 1; lo lee bodyMat): más en las masas convexas de los costados (paleta,
+  // antebrazo, costillas, grupa, muslo), moteado en la grupa y el dorso (foto-1), poco en el vientre, las caras
+  // internas y la cabeza; los cabos negros brillan pero menos nítido. No va en el horneado: se calcula siempre.
   {
     const p = net.pos, nrm = bodyGeo.attributes.normal.array, uv2 = new Float32Array(NV * 2);
     for (let v = 0; v < NV; v++) {
-      const y = p[v * 3 + 1], z = p[v * 3 + 2], ny = nrm[v * 3 + 1], nz = nrm[v * 3 + 2];
+      const x = p[v * 3], y = p[v * 3 + 1], z = p[v * 3 + 2], ny = nrm[v * 3 + 1], nz = nrm[v * 3 + 2];
       const abajo = sstep(0.15, 0.75, -ny) * sstep(1.25, 0.95, y);                                 // vientre, pecho bajo
       const adentro = sstep(0.15, 0.7, -nz * Math.sign(z || 1)) * sstep(1.15, 0.85, y) * sstep(0.2, 0.08, Math.abs(z));   // caras internas
-      const ao = Math.max(0.25, 1 - 0.7 * abajo - 0.35 * adentro);
-      uv2[v * 2] = 0.002 + 0.996 * ao; uv2[v * 2 + 1] = 0.5;
+      const ao = Math.max(0.4, 1 - 0.45 * abajo - 0.3 * adentro);
+      const costado = sstep(0.15, 0.75, Math.abs(nz)) * sstep(-0.45, 0.1, ny);
+      const mote = sstep(-0.25, 0.35, noise3(x * 7 + 11, y * 7, z * 7 + 3) + 0.35 * noise3(x * 19, y * 19 + 5, z * 19));
+      const arriba = sstep(0.2, 0.7, ny) * sstep(1.1, 0.3, x);                                   // dorso, lomo y grupa
+      let b = 0.5 + 0.35 * costado;
+      b *= lerp(1, 0.45 + 0.75 * mote, Math.max(0.35, arriba));                                  // moteado (más arriba)
+      b *= 1 - 0.65 * abajo - 0.5 * adentro;
+      b = lerp(b, 0.42, Math.min(1, pernas[v] * 1.3));                                          // cabos
+      let aoC = ao;
+      if (x > 1.25 && y > 1.4) {                                                                  // cabeza
+        b *= 0.8;
+        const [u] = cp.cabeza.local(x, y, z);
+        b *= lerp(1, 0.25, sstep(0.45, 0.53, u));                                                // hocico aterciopelado
+        aoC *= lerp(1, 0.3, sstep(0.004, -0.004, ollarMasc(x, y, z)));                              // adentro del ollar
+      }
+      uv2[v * 2] = 0.002 + 0.996 * aoC; uv2[v * 2 + 1] = Math.min(1, Math.max(0, b));
     }
     bodyGeo.setAttribute('uv2', new THREE.BufferAttribute(uv2, 2));
   }
   mc('color');
 
-  // pelo corto y brillante: barniz sobre una base más áspera, vetas (map), relieve fino (bump) y rugosidad con las
-  // mismas vetas (roughnessMap: el brillo se rompe a lo largo del pelo, como el reflejo anisótropo); el barniz da
-  // los reflejos nítidos de la paleta, las costillas y la grupa (foto-2)
+  // pelo corto y brillante, SIN barniz (el clearcoat refleja siempre en blanco y daba aspecto de plástico). El
+  // brillo lo dan dos datos: uv2.y (cuánto brilla cada zona, moteado) y el canal verde de coatBump (mechones a lo
+  // largo del pelo, ver vetasBrillo en js/texturas.js), que bajan la rugosidad y suben el reflejo donde el pelo
+  // agarra la luz. El reflejo toma algo del color del pelo (la luz que entra en el pelo y vuelve sale teñida), así
+  // los brillos son castaños dorados y solo los más fuertes tiran a claro.
   const bodyMat = new THREE.MeshPhysicalMaterial({
     vertexColors: true, skinning: true, map: coatMap, bumpMap: coatBump, bumpScale: 0.0008, roughnessMap: coatBump, aoMap: aoTex, aoMapIntensity: 1,
-    color: new THREE.Color(1.25, 1.18, 1.15), roughness: 0.95, metalness: 0, reflectivity: 0.45, clearcoat: 0.3, clearcoatRoughness: 0.3, envMapIntensity: 0.7
+    color: new THREE.Color(1.25, 1.18, 1.15), roughness: 0.6, metalness: 0, reflectivity: 0.5, clearcoat: 0, clearcoatRoughness: 0.5, envMapIntensity: 0.7
   });
+  bodyMat.onBeforeCompile = (sh) => {
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <roughnessmap_fragment>', [
+        'float vetaPelo = texture2D( roughnessMap, vUv ).g;',
+        'float brilloPelo = vUv2.y;',
+        'float roughnessFactor = roughness * mix( 1.15, 0.6, brilloPelo ) * mix( 1.15, 0.8, vetaPelo );'
+      ].join('\n'))
+      .replace('#include <lights_physical_fragment>', [
+        '#include <lights_physical_fragment>',
+        'material.specularColor = mix( vec3( 0.035 ), diffuseColor.rgb * 0.6 + 0.01, 0.6 )',
+        '  * mix( 0.3, 1.25, brilloPelo ) * mix( 0.55, 1.4, vetaPelo );'
+      ].join('\n'))
+      // sombras rojizas: la luz del cielo que rebota dentro del pelo castaño sale teñida (dispersión múltiple), así la
+      // cara a la sombra no se agrisa ni se va a negro azulado
+      .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\nreflectedLight.indirectDiffuse *= vec3( 1.15, 0.96, 0.86 );');
+  };
   const rootBone = new THREE.Bone();
   const bones = []; for (let i = 0; i < NB; i++) { const b = new THREE.Bone(); b.matrixAutoUpdate = false; rootBone.add(b); bones.push(b); }
   const bodyMesh = shadowed(new THREE.SkinnedMesh(bodyGeo, bodyMat));
@@ -1936,7 +2063,8 @@ export function construirCaballo({ scene, coatMap, coatBump, hairTex, horneado =
   // =====================================================================================================
   // PELO: crin, copete, cola, pestañas y pelos de las orejas en UNA malla con piel (1 draw call, se deforma en la
   // GPU). Huesos propios además de los 30 del cuerpo: 10 de la crin (mechones que flamean alrededor de la
-  // cresta), 1 del copete, 2 de las orejas y 9 de la cola (cadena con inercia, ver actualizarCola).
+  // cresta), 1 del copete, 2 de las orejas y 10 de la cola (cadena con inercia que se abre en abanico con la
+  // cola alzada, ver actualizarCola).
   // =====================================================================================================
   const RA = (() => { let s = 20240611 >>> 0; return () => { s = (s + 0x6d2b79f5) >>> 0; let t = s; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; })();
   // la versión anterior consumía 4310 llamadas a rnd() en la crin, el copete y la cola: se consumen igual para no
@@ -1945,21 +2073,27 @@ export function construirCaballo({ scene, coatMap, coatBump, hairTex, horneado =
   const NM = 10, B_CRIN = NB, B_COPETE = NB + NM, B_OREJA = B_COPETE + 1, B_COLA = B_OREJA + 2;
   const TQ = [[-0.60, 1.425], [-0.665, 1.415], [-0.715, 1.36], [-0.745, 1.27], [-0.758, 1.16], [-0.764, 1.06], [-0.768, 0.90], [-0.768, 0.74], [-0.764, 0.58], [-0.757, 0.44], [-0.75, 0.30]].map(([x, y]) => new V(x, y, 0));
   const NQ = TQ.length, ND = 5, NBH = NB + NM + 3 + (NQ - 1);
-  const PEL = { pos: [], nrm: [], uv: [], col: [], si: [], sw: [], idx: [] };
-  const _cc = new THREE.Color();
-  // tira de pelo: puntos P, direcciones del ancho W y normales N (V[]), ancho, afinado, pesos(k, lado) →
-  // [hueso, peso] × 4, color de la raíz y de la punta, ventana de la textura [u0, u1]
+  const PEL = { pos: [], nrm: [], tan: [], uv: [], col: [], si: [], sw: [], idx: [] };
+  const _cc = new THREE.Color(), _tn = new V();
+  // ventana [u0, u1] de la columna c del atlas de mechones (js/texturas.js), al derecho o espejada
+  const colU = (c, espejo) => { const a = c / HAIR_COLS + 0.004, b = (c + 1) / HAIR_COLS - 0.004; return espejo ? [b, a] : [a, b]; };
+  // tira de pelo: puntos P, direcciones del ancho W y normales N (V[]), ancho, afinado (número: el ancho baja
+  // linealmente hasta 1 − afinar; función: perfil del ancho f → factor), pesos(k) → [hueso, peso] × 4, color de la
+  // raíz y de la punta, ventana de la textura [u0, u1] y oclusión (número o función de f; va en peloT.w)
   let brillo = 0;
   const BRILLO_PELO = lin('#5a4a40');
-  function tira(P, W, N, ancho, afinar, pesos, c0, c1, u0, u1) {
+  function tira(P, W, N, ancho, afinar, pesos, c0, c1, u0, u1, ao = 1) {
     const n = P.length - 1, o = PEL.pos.length / 3;
     for (let k = 0; k <= n; k++) {
-      const f = k / n, w = ancho * (1 - afinar * f) * 0.5;
+      const f = k / n, w = ancho * (typeof afinar === 'function' ? afinar(f) : 1 - afinar * f) * 0.5;
       _cc.copy(c0).lerp(c1, f * f).lerp(BRILLO_PELO, brillo * Math.exp(-(((f - 0.3) / 0.16) ** 2)));
+      _tn.subVectors(P[Math.min(n, k + 1)], P[Math.max(0, k - 1)]).normalize();
+      const oc = typeof ao === 'function' ? ao(f) : ao;
       const ps = pesos(k);
       for (let sg = -1; sg <= 1; sg += 2) {
         PEL.pos.push(P[k].x + W[k].x * w * sg, P[k].y + W[k].y * w * sg, P[k].z + W[k].z * w * sg);
         PEL.nrm.push(N[k].x, N[k].y, N[k].z);
+        PEL.tan.push(_tn.x, _tn.y, _tn.z, oc);
         PEL.uv.push(sg < 0 ? u0 : u1, 1 - f);
         PEL.col.push(_cc.r, _cc.g, _cc.b);
         let s = 0; for (let q = 0; q < 4; q++) s += ps[q * 2 + 1];
@@ -1969,12 +2103,25 @@ export function construirCaballo({ scene, coatMap, coatBump, hairTex, horneado =
     }
   }
   const tono = (k) => {   // color de un mechón: casi negro, a veces rojizo; puntas quemadas por el sol
-    const base = lin('#16110f').lerp(lin('#2a1912'), k < 0.15 ? 0.9 : k * 0.5);
-    return [base, base.clone().lerp(lin('#3a2418'), 0.35 + 0.4 * k)];
+    const base = lin('#1a1513').lerp(lin('#2c1b14'), k < 0.15 ? 0.9 : k * 0.5);
+    return [base, base.clone().lerp(lin('#3a2418'), 0.3 + 0.4 * k)];
   };
+  // ancho de la tarjeta a lo largo del mechón: angosta en la raíz (sale de un punto de la piel), llena en el medio
+  const perfilMechon = (f) => (0.45 + 0.55 * sstep(0, 0.3, f)) * (1 - 0.25 * f);
+  // las dos direcciones del ancho de un mechón (tarjetas cruzadas): tangente al volumen (W1) y hacia afuera (W2)
+  function anchosCruzados(P, N, W1, W2, giro = 0) {
+    const n = P.length - 1, D = new V();
+    for (let i = 0; i <= n; i++) {
+      D.subVectors(P[Math.min(n, i + 1)], P[Math.max(0, i - 1)]).normalize();
+      const a = new V().crossVectors(N[i], D).normalize(), b = new V().crossVectors(D, a).normalize();
+      const ca = Math.cos(giro), sa = Math.sin(giro);
+      W1.push(a.clone().multiplyScalar(ca).addScaledVector(b, sa));
+      if (W2) W2.push(b.clone().multiplyScalar(ca).addScaledVector(a, -sa));
+    }
+  }
 
-  // ---------- crin larga que cae sobre el lado derecho (+z), por mechones ----------
-  brillo = 0.45;
+  // ---------- crin larga que cae sobre el lado derecho (+z), por mechones en tres capas ----------
+  brillo = 0.12;
   const pesoPunto = (x, y) => {   // dos huesos del cuello y peso del segundo, según la posición a lo largo del cuello
     const W = new Float32Array(NB); cp.pesoCuello(cp.cuello.tDe(x, y), 1, W);
     let a = 0, b = 0; for (let i = 0; i < NB; i++) if (W[i] > W[a]) a = i;
@@ -1992,21 +2139,23 @@ export function construirCaballo({ scene, coatMap, coatBump, hairTex, horneado =
     C_CRIN.push({ base, eje, perp: new V(-eje.y, eje.x, 0), huesos: pesoPunto(Tp[0] - 0.02 * eje.y, Tp[1] - 0.04) });
   }
   {
-    const tmpN = new V(), q = new V();
-    const nMech = 46;
+    const tmpN = new V();
+    const nMech = 78;
+    // largo a lo largo de la cresta (t: 0 cruz … 1 nuca): corto en la cruz, donde la crin termina suave, largo en el
+    // medio (15–25 cm), algo más corto en la nuca; vecinos parecidos (ondas lentas) y cada mechón distinto
+    const largoCrin = (t) => (0.05 + 0.19 * sstep(0.02, 0.3, t) - 0.06 * sstep(0.8, 1, t)) * (1 + 0.14 * Math.sin(t * 29 + 1.3) + 0.08 * Math.sin(t * 67 + 0.4));
     for (let m = 0; m < nMech; m++) {
-      const tc = 0.03 + 0.97 * (m + RA()) / nMech;
-      // largo del mechón (la textura termina los pelos entre la mitad y el final de la tira): corto en la cruz,
-      // donde la crin termina suave, largo en el medio, algo más corto en la nuca
-      const Lm = (0.05 + 0.24 * sstep(0.03, 0.3, tc) - 0.05 * sstep(0.85, 1, tc)) * (0.7 + 0.6 * RA());
+      const tc = 0.02 + 0.98 * (m + RA()) / nMech;
+      const Lm = largoCrin(tc) * (0.8 + 0.4 * RA());
       const [c0, c1] = tono(RA());
-      const fase = RA() * TAU, onda = 0.004 + RA() * 0.012;
-      const nT = tc < 0.12 ? 2 : 3;
-      for (let k = 0; k < nT; k++) {
-        const t = Math.min(1, Math.max(0.02, tc + (RA() - 0.5) * 0.02));
-        const L = Lm * (0.7 + 0.3 * RA()), capa = RA();
-        const R = cp.cuello.W(t) * 0.5, n = 9;
-        const a0 = -0.06 + RA() * 0.16;           // raíz: sobre la cresta o apenas a la izquierda
+      const fase = RA() * TAU, onda = 0.003 + RA() * 0.01, atras = 0.02 + RA() * 0.04;
+      for (let k = 0; k < 3; k++) {
+        // k = 0: capa de abajo, tupida y pegada a la piel; 1: mechón principal; 2: capa de arriba, rala y más suelta
+        const t = Math.min(1, Math.max(0.01, tc + (RA() - 0.5) * 0.016));
+        const L = Lm * [0.8, 1, 0.92][k] * (0.85 + 0.3 * RA());
+        const R = cp.cuello.W(t) * 0.5, n = 10;
+        const a0 = (k === 0 ? -0.05 : -0.08) + RA() * 0.13;   // raíz: sobre la cresta o apenas a la izquierda
+        const sep = [0.002, 0.005, 0.008][k] + RA() * 0.003, bulto = [0.004, 0.008, 0.012][k] * (0.7 + 0.6 * RA());
         const T0 = cp.cuello.Tp(Math.min(1, t + 0.01)), T1 = cp.cuello.Tp(Math.max(0, t - 0.01));
         const Tc = new V(T0[0] - T1[0], T0[1] - T1[1], 0).normalize();
         const P = [], N = [], W = [];
@@ -2015,63 +2164,63 @@ export function construirCaballo({ scene, coatMap, coatBump, hairTex, horneado =
           let ang = a0 + arc / R, cuelga = 0;
           if (ang > 1.35) { cuelga = (ang - 1.35) * R; ang = 1.35; }
           const p = neckSurfRapido(t, ang, new V(), tmpN);
-          p.addScaledVector(tmpN, 0.003 + capa * 0.009 + 0.012 * Math.min(1, f * 2.2));
-          p.addScaledVector(Tc, -0.025 * f + Math.sin(f * 4 + fase) * onda * f);
+          // se levanta sobre la cresta (el pelo sale parado y se vuelca) y se apoya en el costado
+          p.addScaledVector(tmpN, sep + bulto * Math.sin(Math.PI * Math.min(1, 0.15 + f * 1.3)) * (1 - 0.4 * f));
+          p.addScaledVector(Tc, -atras * f + Math.sin(f * 4 + fase) * onda * f);
           p.y -= cuelga;
           P.push(p); N.push(tmpN.clone());
         }
-        const tw = (RA() - 0.5) * 1.1;
-        for (let i = 0; i <= n; i++) {
-          const D = q.subVectors(P[Math.min(n, i + 1)], P[Math.max(0, i - 1)]).normalize();
-          const Wp = Tc.clone().addScaledVector(D, -Tc.dot(D)).normalize();
-          W.push(Wp.multiplyScalar(Math.cos(tw)).addScaledVector(new V().crossVectors(D, Wp), Math.sin(tw)));
-        }
+        anchosCruzados(P, N, W, null, (RA() - 0.5) * [0.25, 0.6, 1.0][k]);
         const [a, b, w] = pesoPunto(P[0].x, P[0].y);
         const gf = Math.max(0, Math.min(NM - 1.001, (t - T_CRIN[0]) / (T_CRIN[1] - T_CRIN[0]))), g = gf | 0, gr = gf - g;
         const ps = [0, 0, 0, 0, 0, 0, 0, 0];
-        tira(P, W, N, 0.016 + RA() * 0.016, 0.5, (i) => {
+        const ancho = [0.06, 0.042, 0.03][k] * (0.75 + 0.5 * RA()) * (0.6 + 0.4 * sstep(0, 0.15, t));
+        const col = k === 0 ? 3 : k === 1 ? (RA() < 0.5 ? 0 : 1) : 2;
+        const aoK = [0.45, 0.75, 1][k];
+        tira(P, W, N, ancho, (f) => (0.75 + 0.25 * sstep(0, 0.3, f)) * (1 - 0.3 * f), (i) => {
           const s = sstep(0, 0.75, i / n);
           ps[0] = a; ps[1] = (1 - s) * (1 - w); ps[2] = b; ps[3] = (1 - s) * w; ps[4] = B_CRIN + g; ps[5] = s * (1 - gr); ps[6] = B_CRIN + g + 1; ps[7] = s * gr;
           return ps;
-        }, c0, c1, RA() * 0.5, 0.5 + RA() * 0.5);
+        }, c0, c1, ...colU(col, RA() < 0.5), (f) => aoK * (0.6 + 0.4 * sstep(0, 0.35, f)));
       }
     }
   }
-  // ---------- copete: nace entre las orejas y cae sobre la frente hasta la altura de los ojos ----------
+  // ---------- copete: nace entre las orejas, se levanta sobre la nuca y cae sobre la frente hasta los ojos ----------
   const COPETE_RAIZ = new V(...hp(-0.005, 0.0, 0));
   {
-    const tmpN = new V(), q = new V();
-    for (let i = 0; i < 34; i++) {
-      const off = (RA() - 0.5) * 0.75, L = 0.15 + RA() * 0.1, n = 8, P = [], N = [], W = [];
-      const abre = (RA() - 0.45) * 0.5, [c0, c1] = tono(RA() * 0.6);
-      for (let k = 0; k <= n; k++) {
-        const f = k / n, t = Math.max(0.004, (f * L - 0.015) / CAB.L);
-        const p = headSurf(Math.min(0.9, t), off + abre * f, new V(), tmpN);
-        p.addScaledVector(tmpN, 0.005 + 0.01 * f + RA() * 0.004);
+    const tmpN = new V(), EJE_CAB = new V(CAB.A[0], CAB.A[1], 0);
+    for (let i = 0; i < 72; i++) {
+      const k = i % 3;   // capas: 0 abajo (tupida), 1 medio, 2 arriba (rala)
+      const off = (RA() - 0.5) * 1.35, u0 = -0.03 + RA() * 0.035, L = 0.18 + RA() * 0.09, n = 9, P = [], N = [], W = [];
+      const lado = 0.1 + (RA() - 0.5) * 0.12, [c0, c1] = tono(RA() * 0.6);
+      for (let j = 0; j <= n; j++) {
+        const f = j / n, u = u0 + f * L;
+        const ang = off * (1 - 0.55 * sstep(0.15, 1, f)) + lado * f;   // se junta hacia la punta y cae apenas a la derecha
+        const p = headSurf(Math.max(0.01, u) / CAB.L, ang, new V(), tmpN);
+        if (u < 0.01) p.addScaledVector(EJE_CAB, u - 0.01);
+        p.addScaledVector(tmpN, 0.003 + 0.004 * k + 0.005 * (1 - f) + 0.03 * Math.exp(-(((f - 0.1) / 0.18) ** 2)));
         P.push(p); N.push(tmpN.clone());
       }
-      for (let k = 0; k <= n; k++) {
-        const D = q.subVectors(P[Math.min(n, k + 1)], P[Math.max(0, k - 1)]).normalize();
-        W.push(new V().crossVectors(D, N[k]).normalize());
-      }
+      anchosCruzados(P, N, W, null, (RA() - 0.5) * 0.6);
       const ps = [HB.cabeza, 0, B_COPETE, 0, 0, 0, 0, 0];
-      tira(P, W, N, 0.012 + RA() * 0.012, 0.75, (k) => { const s = sstep(0.1, 0.8, k / n); ps[1] = 1 - s; ps[3] = s; return ps; }, c0, c1, RA() * 0.5, 0.5 + RA() * 0.5);
+      tira(P, W, N, (0.018 + RA() * 0.016) * [1.2, 1, 0.8][k], (f) => (0.6 + 0.4 * sstep(0, 0.25, f)) * (1 - 0.45 * f), (j) => { const s = sstep(0.1, 0.8, j / n); ps[1] = 1 - s; ps[3] = s; return ps; },
+        c0, c1, ...colU([1, 0, 2][k], RA() < 0.5), [0.5, 0.8, 1][k]);
     }
   }
-  // ---------- pestañas (párpado superior, 2/3 de afuera) ----------
+  // ---------- pestañas (párpado superior, los 2/3 de afuera, hacia la oreja) ----------
   brillo = 0;
   for (const o of cp.ojos) {
     const eje = new V(...o.eje), A = new V(CAB.A[0], CAB.A[1], 0), c = new V(...o.c);
     const Lg = A.clone().addScaledVector(eje, -A.dot(eje)).normalize();
     const Sg = new V().crossVectors(eje, Lg); if (Sg.y < 0) Sg.negate();
     for (let k = 0; k < 7; k++) {
-      const psi = lerp(-0.15, 0.85, k / 6), ph = 0.62;
+      const psi = lerp(0.15, -0.85, k / 6), ph = 0.62;   // psi < 0: hacia atrás (ángulo externo)
       const raiz = c.clone().addScaledVector(new V().copy(eje).multiplyScalar(Math.cos(ph) * Math.cos(psi)).addScaledVector(Sg, Math.sin(ph)).addScaledVector(Lg, Math.cos(ph) * Math.sin(psi)).normalize(), o.R + 0.0075);
       const dir = eje.clone().multiplyScalar(0.8).addScaledVector(Sg, -0.15).addScaledVector(Lg, 0.25 * psi).normalize();
       const P = [raiz, raiz.clone().addScaledVector(dir, 0.012), raiz.clone().addScaledVector(dir, 0.022).addScaledVector(Sg, -0.004)];
       const W = P.map(() => Lg), N = P.map(() => Sg);
       const ps = [HB.cabeza, 1, 0, 0, 0, 0, 0, 0];
-      tira(P, W, N, 0.0045, 0.6, () => ps, BLACK, BLACK, 0.3, 0.42);
+      tira(P, W, N, 0.0045, 0.6, () => ps, BLACK, BLACK, 0.3, 0.42, 0.3);
     }
   }
   // ---------- pelos de adentro de las orejas ----------
@@ -2084,18 +2233,24 @@ export function construirCaballo({ scene, coatMap, coatBump, hairTex, horneado =
       const P = [P0.clone(), P0.clone().add(new V(0, 0.03 + RA() * 0.02, 0.012)), P0.clone().add(new V(0, 0.05 + RA() * 0.03, 0.02))].map((p) => p.applyMatrix4(M));
       const N = P.map(() => new V(0, 0, 1).transformDirection(M)), W = P.map(() => new V(1, 0, 0).transformDirection(M));
       const ps = [B_OREJA + e, 1, 0, 0, 0, 0, 0, 0];
-      tira(P, W, N, 0.012, 0.6, () => ps, lin('#5c4a3c'), lin('#a08a74'), RA() * 0.5, 0.5 + RA() * 0.5);
+      tira(P, W, N, 0.012, 0.6, () => ps, lin('#5c4a3c'), lin('#a08a74'), ...colU(2, RA() < 0.5), 0.6);
     }
   });
-  // ---------- cola: maslo (piel, mismo material que el cuerpo) y cerda por mechones alrededor ----------
-  brillo = 0.45;
-  // TQ: nodos de la cola en reposo (marco de la pelvis): 0–5 maslo, 5–9 cerda colgando hasta y ≈ 0,42
+  // ---------- cola: maslo (piel, mismo material que el cuerpo) cubierto de pelo y cerda por mechones en capas ----------
+  brillo = 0.12;
+  // TQ: nodos de la cola en reposo (marco de la pelvis): 0–5 maslo, 5–10 cerda colgando hasta y ≈ 0,30
   const LQ = [], DQ = [];
   for (let i = 0; i < NQ - 1; i++) { LQ.push(TQ[i].distanceTo(TQ[i + 1])); DQ.push(new V().subVectors(TQ[i + 1], TQ[i]).normalize()); }
   const sQ = [0]; for (let i = 0; i < NQ - 1; i++) sQ.push(sQ[i] + LQ[i]);
-  const puntoCola = (s, out) => {   // s: parámetro de nodos (0 … NQ − 1) → punto de la curva en reposo
+  const puntoCola = (s, out) => {   // s: parámetro de nodos (0 … NQ − 1) → punto de la curva en reposo (s < 0: dentro de la grupa)
     const i = Math.max(0, Math.min(NQ - 2, Math.floor(s))), f = s - i;
     return out.copy(TQ[i]).lerp(TQ[i + 1], f);
+  };
+  const tangCola = (s, out) => {   // tangente suave de la curva (mezcla de los segmentos vecinos)
+    const x = Math.max(0, Math.min(NQ - 1.001, s)), i = Math.floor(x), f = x - i;
+    if (f < 0.5) out.copy(DQ[Math.max(0, i - 1)]).lerp(DQ[i], i === 0 ? 1 : 0.5 + f);
+    else out.copy(DQ[i]).lerp(DQ[Math.min(NQ - 2, i + 1)], f - 0.5);
+    return out.normalize();
   };
   const pesosCola = (s, ps) => {   // dos huesos de la cola según s (tienda centrada en cada segmento)
     const x = Math.max(0.5, Math.min(NQ - 1.5, s)), i = Math.floor(x - 0.5), f = x - 0.5 - i;
@@ -2103,46 +2258,77 @@ export function construirCaballo({ scene, coatMap, coatBump, hairTex, horneado =
     return ps;
   };
   const radioMaslo = (s) => lerp(0.04, 0.025, s / ND) * cap(s / ND, 0, 0.12);
+  const _pc = new V(), _tc = new V();
+  // semiancho de la cerda (z) a lo largo de la cadena: 6–7 cm bajo el maslo, ~10 en el medio y se cierra apenas abajo;
+  // de fondo es más chata (atrás 0,8 del ancho, contra las nalgas 0,45)
+  const anchoCola = (s) => prof([[0, 0.035], [2, 0.05], [4, 0.062], [5, 0.07], [6.5, 0.094], [8, 0.1], [9.5, 0.086], [10, 0.08]], s);
+  // punto de un mechón de la cola: s en la cadena, ángulo phi alrededor (0 = arriba/atrás, ±π/2 = costados,
+  // ±π = contra las nalgas), dr = distancia a la piel del maslo, rho = profundidad en el volumen colgante (0 … 1)
+  const dirCola = new V();
+  function puntoMechon(s, phi, dr, rho, h, out, nOut) {
+    puntoCola(s, _pc); tangCola(s, _tc);
+    const nx = -_tc.y, ny = _tc.x, ca = Math.cos(phi), sa = Math.sin(phi);
+    dirCola.set(-nx * ca, -ny * ca, sa);
+    let dn = 0, dz = 0;
+    if (h < 1) { const r = (s <= ND ? radioMaslo(Math.max(0, s)) : 0) + dr; dn = r * ca; dz = r * sa; }
+    if (h > 0) { const az = anchoCola(s), an = (ca > 0 ? 0.8 : 0.45) * az; dn = lerp(dn, Math.max(dr, rho * an) * ca, h); dz = lerp(dz, Math.max(dr, rho * az) * sa, h); }
+    out.set(_pc.x - nx * dn, _pc.y - ny * dn, dz);
+    if (nOut) nOut.copy(dirCola);
+    return out;
+  }
   {
-    const tmpP = new V(), tmpT = new V();
-    const nMech = 36;
-    for (let m = 0; m < nMech; m++) {
-      const [c0, c1] = tono(RA());
-      const s0 = 0.3 + RA() * 4.4, phi0 = Math.PI * (-0.8 + 1.6 * RA());   // alrededor del maslo (0 = arriba/atrás, ±π = contra las nalgas)
-      const largo = lerp(0.55, 1, Math.pow(RA(), 0.5));                       // los pelos terminan entre y ≈ 0,38 y 0,60
-      const nT = 5;
-      for (let k = 0; k < nT; k++) {
-        const phi = phi0 + (RA() - 0.5) * 0.6, sIni = Math.max(0.2, s0 + (RA() - 0.5) * 0.6);
-        const sFin = Math.min(NQ - 1, lerp(sIni + 2, NQ - 1, largo * (0.85 + 0.15 * RA())));
-        const n = 12, P = [], N = [], W = [], Ss = [];
-        const abre = 0.035 + RA() * 0.06, fase = RA() * TAU;
-        for (let i = 0; i <= n; i++) {
-          const f = i / n, s = lerp(sIni, sFin, f);
-          puntoCola(s, tmpP);
-          const seg = Math.max(0, Math.min(NQ - 2, Math.floor(s)));
-          tmpT.copy(DQ[seg]);
-          const nx = -tmpT.y, ny = tmpT.x;   // normal en el plano de simetría
-          // volumen: cerca de la raíz pegado al maslo; abajo se abre y al final se cierra un poco
-          const r = radioMaslo(Math.min(s, ND)) * (s < ND ? 1 : 0.8) + abre * sstep(0, 0.45, f) * (1 - 0.35 * sstep(0.6, 1, f));
-          const ca = Math.cos(phi), sa = Math.sin(phi);
-          const p = tmpP.clone();
-          p.x += nx * -ca * r; p.y += ny * -ca * r; p.z += sa * r;
-          p.z += Math.sin(f * 5 + fase) * 0.006 * f;
-          P.push(p); Ss.push(s);
-          N.push(new V(nx * -ca, ny * -ca, sa).normalize());
-        }
-        for (let i = 0; i <= n; i++) {
-          const D = new V().subVectors(P[Math.min(n, i + 1)], P[Math.max(0, i - 1)]).normalize();
-          W.push(new V().crossVectors(N[i], D).normalize());
-        }
-        const ps = [0, 0, 0, 0, 0, 0, 0, 0];
-        tira(P, W, N, 0.028 + RA() * 0.03, 0.45, (i) => pesosCola(Ss[i], ps), c0, c1, RA() * 0.4, 0.6 + RA() * 0.4);
+    const P0 = new V(), N0 = new V();
+    // pelo corto del maslo: nace en el dorso y los costados del maslo desde donde sale de la grupa, acostado hacia la
+    // punta (los que nacen dentro de la grupa asoman de la piel: la cola sale del cuerpo sin un corte)
+    const RAIZ_C = COAT.clone().lerp(BLACK, 0.55);
+    for (let m = 0; m < 90; m++) {
+      const s0 = Math.pow(RA(), 1.4) * 4.0, phi = (RA() - 0.5) * 3.6, L = (0.07 + RA() * 0.1) / 0.075;   // largo en nodos
+      const n = 6, P = [], N = [], Ss = [];
+      const capa = RA();
+      for (let i = 0; i <= n; i++) {
+        const f = i / n, s = s0 + f * L;
+        puntoMechon(s, phi + (RA() - 0.5) * 0.06, 0.002 + 0.006 * capa + 0.004 * f, 0, 0, P0, N0);
+        P.push(P0.clone()); N.push(N0.clone()); Ss.push(s);
       }
+      const W = []; anchosCruzados(P, N, W, null, 0);
+      const [c0, c1] = tono(RA()), ps = [0, 0, 0, 0, 0, 0, 0, 0];
+      tira(P, W, N, 0.025 + RA() * 0.015, (f) => (0.6 + 0.4 * sstep(0, 0.3, f)), (i) => pesosCola(Ss[i], ps),
+        s0 < 1.0 ? RAIZ_C : c0, c1, ...colU(3, RA() < 0.5), (f) => 0.55 + 0.35 * capa);
+    }
+    // cerda: mechones que nacen a lo largo del maslo (más arriba que abajo), se acuestan sobre él y cuelgan en un
+    // volumen angosto arriba y más abierto abajo; cada uno con dos tarjetas cruzadas y la punta que se abre
+    const NMQ = 230;
+    for (let m = 0; m < NMQ; m++) {
+      const [c0, c1] = tono(RA());
+      const s0 = Math.pow(RA(), 1.3) * 4.7;
+      const phi0 = (RA() < 0.5 ? -1 : 1) * Math.pow(RA(), 0.8) * 1.9;
+      const capa = RA(), rho = 0.25 + 0.8 * Math.sqrt(RA());
+      const corto = RA() < 0.18;
+      const sFin = corto ? lerp(6.2, 8.6, RA()) : lerp(8.6, 10, Math.pow(RA(), 0.7)) - 0.4 * Math.max(0, rho - 0.8) * RA() * 5;
+      const deriva = (RA() - 0.5) * 0.5, abre = 0.012 + RA() * 0.03, abreZ = (RA() - 0.5) * 0.05, fase = RA() * TAU, ondaZ = 0.003 + RA() * 0.007;
+      const n = 16, P = [], N = [], Ss = [];
+      for (let i = 0; i <= n; i++) {
+        const f = i / n, s = lerp(s0, sFin, f), h = sstep(3.8, 6.4, s);
+        const phi = lerp(phi0, phi0 * 1.25 + deriva, h);
+        puntoMechon(s, phi, 0.003 + 0.012 * capa + 0.018 * capa * sstep(s0, s0 + 1.5, s) * (1 - h), rho, h, P0, N0);
+        // puntas: se separan hacia afuera y un poco al costado, con una onda lenta
+        const g = sstep(0.6, 1, f);
+        P0.addScaledVector(N0, abre * g); P0.z += abreZ * g + Math.sin(f * 6 + fase) * ondaZ * f;
+        P.push(P0.clone()); N.push(N0.clone()); Ss.push(s);
+      }
+      const W1 = [], W2 = []; anchosCruzados(P, N, W1, W2, (RA() - 0.5) * 0.4);
+      const ps = [0, 0, 0, 0, 0, 0, 0, 0], pes = (i) => pesosCola(Ss[i], ps);
+      const ancho = 0.022 + RA() * 0.03;
+      const ao = (0.4 + 0.6 * Math.min(1, rho)) * (Math.abs(phi0) > 1.6 ? 0.8 : 1);
+      const perfil = (f) => perfilMechon(f) * (1 + 0.35 * sstep(0.5, 1, f));
+      tira(P, W1, N, ancho, perfil, pes, c0, c1, ...colU(rho > 0.9 ? 2 : RA() < 0.55 ? 0 : 1, RA() < 0.5), (f) => ao * (0.7 + 0.3 * sstep(0, 0.2, f)));
+      tira(P, W2, N, ancho * 0.7, perfil, pes, c0, c1, ...colU(RA() < 0.6 ? 2 : 1, RA() < 0.5), (f) => ao * (0.7 + 0.3 * sstep(0, 0.2, f)));
     }
   }
   const peloGeo = new THREE.BufferGeometry();
   peloGeo.setAttribute('position', new THREE.Float32BufferAttribute(PEL.pos, 3));
   peloGeo.setAttribute('normal', new THREE.Float32BufferAttribute(PEL.nrm, 3));
+  peloGeo.setAttribute('peloT', new THREE.Float32BufferAttribute(PEL.tan, 4));
   peloGeo.setAttribute('uv', new THREE.Float32BufferAttribute(PEL.uv, 2));
   peloGeo.setAttribute('color', new THREE.Float32BufferAttribute(PEL.col, 3));
   peloGeo.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(PEL.si, 4));
@@ -2160,11 +2346,12 @@ export function construirCaballo({ scene, coatMap, coatBump, hairTex, horneado =
     const nS = 14, nR = 16, pos = [], nrm = [], uv = [], col = [], si = [], sw = [], idx = [];
     const P = new V(), ps = [0, 0, 0, 0, 0, 0, 0, 0], cc = new THREE.Color();
     for (let i = 0; i <= nS; i++) {
-      const s = ND * i / nS, seg = Math.min(NQ - 2, Math.floor(s)), D = DQ[seg], nx = -D.y, ny = D.x;
+      // empieza bien adentro de la grupa (s < 0): con la cola alzada la boca del tubo no asoma
+      const s = lerp(-0.6, ND, i / nS), D = tangCola(s, new V()), nx = -D.y, ny = D.x;
       puntoCola(s, P);
-      const r = radioMaslo(s) * (i === 0 ? 0.85 : 1);
+      const r = radioMaslo(Math.max(0, s)) * (i === 0 ? 0.85 : 1);
       pesosCola(s, ps);
-      cc.copy(COAT).lerp(BLACK, sstep(0.0, 0.25, i / nS));
+      cc.copy(COAT).lerp(BLACK, sstep(0.5, 1.5, s));
       for (let j = 0; j <= nR; j++) {
         const a = j / nR * TAU, ca = Math.cos(a), sa = Math.sin(a);
         pos.push(P.x + nx * ca * r, P.y + ny * ca * r, P.z + sa * r * 0.92);
@@ -2179,6 +2366,8 @@ export function construirCaballo({ scene, coatMap, coatBump, hairTex, horneado =
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    // uv2 para bodyMat: oclusión (x) y brillo del pelo (y)
+    g.setAttribute('uv2', new THREE.Float32BufferAttribute(new Float32Array(pos.length / 3 * 2).map((_, i) => (i & 1 ? 0.35 : 0.85)), 2));
     g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
     g.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(si, 4));
     g.setAttribute('skinWeight', new THREE.Float32BufferAttribute(sw, 4));
@@ -2255,10 +2444,10 @@ export function construirCaballo({ scene, coatMap, coatBump, hairTex, horneado =
     huesosPelo[B_COPETE].matrix.multiplyMatrices(bones[HB.cabeza].matrix, rotarAlrededor(COPETE_RAIZ, _q1, _mR));
   }
   // ---------- cola: el maslo sigue a la pelvis (alzada y balanceo); la cerda es una cadena con inercia ----------
-  const ANG_REPOSO = [], ANG_ALZADA = [145, 152, 162, 174, 186].map((g) => g * Math.PI / 180);
+  const ANG_REPOSO = [], ANG_ALZADA = [158, 150, 158, 172, 186].map((g) => g * Math.PI / 180);
   for (let i = 0; i < ND; i++) ANG_REPOSO.push(Math.atan2(DQ[i].y, DQ[i].x) + (DQ[i].y < 0 && DQ[i].x < 0 ? TAU : 0));
   const cola = { P: TQ.map((p) => p.clone()), Pp: TQ.map((p) => p.clone()), t: null, R: TQ.map((p) => p.clone()) };
-  const _mL = new THREE.Matrix4(), _g = new V(), _d0 = new V(), _d1 = new V(), _vel = new V(), _nz = new V(), _qd = new THREE.Quaternion();
+  const _mL = new THREE.Matrix4(), _mE = new THREE.Matrix4(), _g = new V(), _d0 = new V(), _d1 = new V(), _vel = new V(), _nz = new V(), _qd = new THREE.Quaternion();
   // posición del maslo (nodos 0 … ND) en el marco de reposo de la pelvis
   function masloReposo(alz, sw, time, out) {
     out[0].copy(TQ[0]);
@@ -2296,7 +2485,7 @@ export function construirCaballo({ scene, coatMap, coatBump, hairTex, horneado =
   function actualizarCola(time, pose) {
     const co = pose.cola || {};
     const alz = co.alzada || 0, sw = co.balanceo !== undefined ? co.balanceo : 0.6;
-    const viento = co.viento !== undefined ? co.viento : 0.4 + 6 * Math.max(0, alz);
+    const viento = co.viento !== undefined ? co.viento : 0.4 + 8.5 * Math.max(0, alz);
     const lateral = co.giro !== undefined ? co.giro * 6 : 40 * ((pose.cuerpo && pose.cuerpo.curva) || 0);
     masloReposo(alz, sw, time, cola.R);
     const M = lsIn.matrixWorld;
@@ -2313,7 +2502,19 @@ export function construirCaballo({ scene, coatMap, coatBump, hairTex, horneado =
     }
     // huesos: marco de cada segmento (normal = z de la pelvis) por el inverso del de reposo
     _nz.set(0, 0, 1).transformDirection(M);
-    for (let i = 0; i < NQ - 1; i++) huesosPelo[B_COLA + i].matrix.multiplyMatrices(marco(cola.P[i], cola.P[i + 1], _nz, _mL), colaRestInv[i]);
+    // con la cola alzada (galope) la cerda se abre en abanico: los huesos de la parte que cuelga escalan el volumen
+    // alrededor del eje (más en el plano de la cola, que de perfil se ve como mechones que se separan)
+    const abanico = Math.max(0, Math.min(1.2, alz));
+    for (let i = 0; i < NQ - 1; i++) {
+      marco(cola.P[i], cola.P[i + 1], _nz, _mL);
+      const g = abanico * sstep(ND - 0.5, NQ - 1.5, i + 0.5);
+      if (g > 0) {
+        const fl = 1 + 0.08 * Math.sin(time * 7.3 + i * 1.1);
+        _mE.makeScale(1, 1 + 0.95 * g * fl, 1 + 0.5 * g * fl);
+        _mL.multiply(_mE);
+      }
+      huesosPelo[B_COLA + i].matrix.multiplyMatrices(_mL, colaRestInv[i]);
+    }
   }
 
   const _firma = new Float64Array(28);

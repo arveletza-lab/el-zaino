@@ -25,30 +25,33 @@ export function crearEscena(stage) {
   controls.maxPolarAngle = Math.PI * 0.62;
   controls.autoRotateSpeed = 1.2;
 
-  // Studio reflections: soft gradient dome + two softboxes, prefiltered (no visible environment)
+  // Reflejos de exterior: domo con cielo (claro en el horizonte, azul arriba), cuchillas con bruma, pasto y algo de
+  // tierra bajo el caballo, prefiltrado (no se ve). Sin softboxes de estudio: sus reflejos blancos daban al pelaje
+  // aspecto de plástico; así los reflejos toman el color del lugar.
   (function buildEnv() {
     const env = new THREE.Scene();
-    const g = new THREE.SphereGeometry(10, 32, 16);
+    const g = new THREE.SphereGeometry(10, 64, 32);
     const col = [];
     const p = g.attributes.position;
     for (let i = 0; i < p.count; i++) {
       const y = p.getY(i) / 10;
-      const c = y < 0 ? new THREE.Color().lerpColors(lin('#4a5a2c'), lin('#9fb0a0'), sstep(-0.6, 0, y)) : new THREE.Color().lerpColors(lin('#c6d6e2'), lin('#4f86c6'), sstep(0, 0.8, y));
+      let c;
+      if (y >= 0) c = new THREE.Color().lerpColors(lin('#dfe7ea'), lin('#6e9bd2'), sstep(0, 0.75, y));
+      else {
+        c = new THREE.Color().lerpColors(lin('#9db08f'), lin('#6f8a3c'), sstep(0, -0.12, y));   // horizonte: cuchillas con bruma
+        c.lerp(lin('#5e7434'), sstep(-0.12, -0.6, y));                                          // pasto
+        c.lerp(lin('#7d6f52'), 0.35 * sstep(-0.6, -0.95, y));                                   // tierra bajo el caballo
+      }
       col.push(c.r, c.g, c.b);
     }
     g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
     env.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
-    const box = (x, y, z, w, h, k) => {
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(k, k, k * 0.95), side: THREE.DoubleSide }));
-      m.position.set(x, y, z); m.lookAt(0, 0, 0); env.add(m);
-    };
-    box(4, 6, 5, 3, 3, 4.5);
-    box(-6, 4, -4, 6, 3, 1.4);
     const pm = new THREE.PMREMGenerator(renderer);
     scene.environment = pm.fromScene(env, 0.04).texture;
   })();
 
-  scene.add(new THREE.HemisphereLight(0xcfe2f5, 0x5d6b3a, 0.55));
+  // el hemisferio compensa lo que la luz de contorno, más suave, deja de iluminar del lado a la sombra
+  scene.add(new THREE.HemisphereLight(0xcfe2f5, 0x5d6b3a, 0.7));
   const key = new THREE.DirectionalLight(0xfff1dd, 2.6);
   key.position.set(3, 5, 3.5);
   key.castShadow = true;
@@ -57,7 +60,8 @@ export function crearEscena(stage) {
   key.shadow.bias = -0.0004;
   key.shadow.normalBias = 0.015;
   scene.add(key);
-  const rim = new THREE.DirectionalLight(0xc8dcff, 0.8);
+  // luz de contorno neutra y suave: azulada y a 0,8 dejaba un reflejo blanco azulado en el pelaje del lado a la sombra
+  const rim = new THREE.DirectionalLight(0xe6e4e0, 0.45);
   rim.position.set(-4, 3, -3);
   scene.add(rim);
 
